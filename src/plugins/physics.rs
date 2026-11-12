@@ -1,4 +1,6 @@
 use crate::plugins::ball::Ball;
+use crate::plugins::paddle::LoseLife;
+use crate::plugins::walls::WallLocation;
 use bevy::prelude::*;
 
 pub struct PhysicsPlugin;
@@ -73,11 +75,12 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
 
 fn check_for_collisions(
     ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
-    collider_query: Query<&Transform, With<Collider>>,
+    collider_query: Query<(&Collider, &Transform, Option<&WallLocation>), With<Collider>>,
+    mut lose_life: MessageWriter<LoseLife>,
 ) {
     let (mut ball_velocity, ball_transform) = ball_query.into_inner();
 
-    for collider_transform in &collider_query {
+    for (collider, collider_transform, wall_location) in &collider_query {
         let collision = ball_collision(
             BoundingCircle::new(
                 ball_transform.translation.truncate(),
@@ -90,27 +93,59 @@ fn check_for_collisions(
         );
 
         if let Some(collision) = collision {
-            // Reflect the ball's velocity when it collides
-            let mut reflect_x = false;
-            let mut reflect_y = false;
+            match collider.0 {
+                ColliderType::Wall => {
+                    if let Some(wall_location) = wall_location {
+                        lose_life.write(LoseLife(wall_location.owner()));
+                    }
+                    // Reflect the ball's velocity when it collides
+                    let mut reflect_x = false;
+                    let mut reflect_y = false;
 
-            // Reflect only if the velocity is in the opposite direction of the collision
-            // This prevents the ball from getting stuck inside the bar
-            match collision {
-                Collision::Left => reflect_x = ball_velocity.x > 0.0,
-                Collision::Right => reflect_x = ball_velocity.x < 0.0,
-                Collision::Top => reflect_y = ball_velocity.y < 0.0,
-                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
-            }
+                    // Reflect only if the velocity is in the opposite direction of the collision
+                    // This prevents the ball from getting stuck inside the bar
+                    match collision {
+                        Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                        Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                        Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                        Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                    }
 
-            // Reflect velocity on the x-axis if we hit something on the x-axis
-            if reflect_x {
-                ball_velocity.x = -ball_velocity.x;
-            }
+                    // Reflect velocity on the x-axis if we hit something on the x-axis
+                    if reflect_x {
+                        ball_velocity.x = -ball_velocity.x;
+                    }
 
-            // Reflect velocity on the y-axis if we hit something on the y-axis
-            if reflect_y {
-                ball_velocity.y = -ball_velocity.y;
+                    // Reflect velocity on the y-axis if we hit something on the y-axis
+                    if reflect_y {
+                        ball_velocity.y = -ball_velocity.y;
+                    }
+                }
+                ColliderType::Paddle => {
+                    // Reflect the ball's velocity when it collides
+                    let mut reflect_x = false;
+                    let mut reflect_y = false;
+
+                    // Reflect only if the velocity is in the opposite direction of the collision
+                    // This prevents the ball from getting stuck inside the bar
+                    match collision {
+                        Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                        Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                        Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                        Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                    }
+
+                    // Reflect velocity on the x-axis if we hit something on the x-axis
+                    if reflect_x {
+                        ball_velocity.x = -ball_velocity.x;
+                    }
+
+                    // Reflect velocity on the y-axis if we hit something on the y-axis
+                    if reflect_y {
+                        ball_velocity.y = -ball_velocity.y;
+                    }
+                }
+                ColliderType::PowerUp => todo!(),
             }
         }
     }

@@ -1,6 +1,9 @@
 use crate::{
     STARTING_LIVES,
-    plugins::{ball::Ball, physics::Collider, physics::ColliderType, walls::WALL_THICKNESS},
+    plugins::{
+        ball::BALL_STARTING_POSITION, ball::Ball, ball::ServePause, physics::Collider,
+        physics::ColliderType, physics::Velocity, walls::WALL_THICKNESS,
+    },
 };
 use bevy::{prelude::*, window::WindowResized};
 use rand::RngExt;
@@ -19,13 +22,16 @@ impl Plugin for PaddlePlugin {
         app.add_systems(Startup, setup);
         app.add_systems(Update, on_window_resize);
         app.add_systems(Update, move_paddle);
+        app.add_message::<LoseLife>();
+        app.add_systems(Update, handle_lose_life);
+        app.add_message::<PaddleEliminated>();
     }
 }
 
 #[derive(Component)]
 struct Paddle;
 
-#[derive(Component, PartialEq, Eq, Debug)]
+#[derive(Component, PartialEq, Eq, Debug, Copy, Clone)]
 
 pub enum PaddleLocation {
     Left,
@@ -71,6 +77,12 @@ enum PlayerType {
 
 #[derive(Component)]
 pub struct Lives(pub u32);
+
+#[derive(Message)]
+pub struct LoseLife(pub PaddleLocation);
+
+#[derive(Message)]
+pub struct PaddleEliminated(pub PaddleLocation);
 
 fn setup(mut commands: Commands, window: Query<&mut Window>) {
     let min_window_dimension = window
@@ -248,5 +260,39 @@ fn move_paddle(
 
         paddle_transform.translation.x = new_paddle_position.x.clamp(left_bound, right_bound);
         paddle_transform.translation.y = new_paddle_position.y.clamp(bottom_bound, top_bound);
+    }
+}
+
+fn handle_lose_life(
+    mut commands: Commands,
+    mut messages: MessageReader<LoseLife>,
+    mut eliminated: MessageWriter<PaddleEliminated>,
+    mut paddles: Query<(Entity, &PaddleLocation, &mut Lives)>,
+    ball: Single<(Entity, &mut Transform, &mut Velocity), With<Ball>>,
+) {
+    let (ball_entity, mut ball_transform, mut ball_velocity) = ball.into_inner();
+    let mut point_already_scored = false;
+
+    for LoseLife(location) in messages.read() {
+        // Avoid scoring losing more than one life in the same frame, in case of multiple collisions
+        if point_already_scored {
+            continue;
+        }
+        for (paddle, paddle_location, mut lives) in &mut paddles {
+            if *paddle_location == *location && lives.0 > 0 {
+                lives.0 -= 1;
+
+                if lives.0 <= 0 {
+                    commands.entity(paddle).despawn();
+                    eliminated.write(PaddleEliminated(*paddle_location));
+                }
+
+                ball_transform.translation = BALL_STARTING_POSITION;
+                ball_velocity.0 = Vec2::ZERO;
+
+                commands.entity(ball_entity).insert(ServePause::new());
+                point_already_scored = true;
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 use crate::STARTING_LIVES;
-use crate::plugins::paddle::{Lives, PaddleLocation};
+use crate::plugins::paddle::{Lives, PaddleEliminated, PaddleLocation};
 use bevy::prelude::*;
 
 pub struct HudPlugin;
@@ -8,6 +8,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup);
         app.add_systems(Update, update_lives_displays);
+        app.add_systems(Update, handle_paddle_eliminated);
     }
 }
 
@@ -85,6 +86,19 @@ fn update_lives_displays(
         for (display, mut text) in &mut displays_query {
             if display.0 == *paddle_location {
                 **text = format!("{:?}: {}", paddle_location, lives.0)
+            }
+        }
+    }
+}
+
+fn handle_paddle_eliminated(
+    mut messages: MessageReader<PaddleEliminated>,
+    mut displays_query: Query<(&LivesDisplay, &mut Text)>,
+) {
+    for PaddleEliminated(location) in messages.read() {
+        for (display, mut text) in &mut displays_query {
+            if display.0 == *location {
+                **text = format!("{location:?}: 0")
             }
         }
     }

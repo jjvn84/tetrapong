@@ -21,9 +21,13 @@ impl Wall {
     // This "builder method" allows us to reuse logic across our wall entities,
     // making our code easier to read and less prone to bugs when we change the logic
     // Notice the use of Sprite and Transform alongside Wall, overwriting the default values defined for the required components
-    fn new(location: WallLocation, min_window_dimension: f32) -> (Wall, Sprite, Transform) {
+    fn new(
+        location: WallLocation,
+        min_window_dimension: f32,
+    ) -> (Wall, WallLocation, Sprite, Transform) {
         (
             Wall,
+            location.clone(),
             Sprite::from_color(WALL_COLOR, Vec2::ONE),
             Transform {
                 // We need to convert our Vec2 into a Vec3, by giving it a z-coordinate
@@ -38,7 +42,8 @@ impl Wall {
         )
     }
 }
-enum WallLocation {
+#[derive(Component, Clone)]
+pub enum WallLocation {
     Left,
     Right,
     Bottom,
@@ -68,7 +73,7 @@ impl WallLocation {
         }
     }
 
-    fn owner(&self) -> PaddleLocation {
+    pub fn owner(&self) -> PaddleLocation {
         match self {
             WallLocation::Left => PaddleLocation::Left,
             WallLocation::Right => PaddleLocation::Right,
