@@ -31,6 +31,36 @@ impl Plugin for PaddlePlugin {
 #[derive(Component)]
 struct Paddle;
 
+impl Paddle {
+    fn new(
+        location: PaddleLocation,
+        player_type: PlayerType,
+        min_window_dimension: f32,
+    ) -> (
+        Sprite,
+        Transform,
+        Paddle,
+        PaddleLocation,
+        PlayerType,
+        Lives,
+        Collider,
+    ) {
+        (
+            Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
+            Transform {
+                translation: location.position(min_window_dimension),
+                scale: location.size(min_window_dimension),
+                ..default()
+            },
+            Paddle,
+            location,
+            player_type,
+            Lives(STARTING_LIVES),
+            Collider(ColliderType::Paddle),
+        )
+    }
+}
+
 #[derive(Component, PartialEq, Eq, Debug, Copy, Clone)]
 
 pub enum PaddleLocation {
@@ -92,59 +122,28 @@ fn setup(mut commands: Commands, window: Query<&mut Window>) {
         .width()
         .min(window.single().unwrap().resolution.height());
 
-    commands.spawn((
-        Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
-        Transform {
-            translation: PaddleLocation::Left.position(min_window_dimension),
-            scale: PaddleLocation::Left.size(min_window_dimension),
-            ..default()
-        },
-        Paddle,
+    commands.spawn(Paddle::new(
         PaddleLocation::Left,
         PlayerType::Computer,
-        Lives(STARTING_LIVES),
-        Collider(ColliderType::Paddle),
+        min_window_dimension,
     ));
-    commands.spawn((
-        Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
-        Transform {
-            translation: PaddleLocation::Right.position(min_window_dimension),
-            scale: PaddleLocation::Right.size(min_window_dimension),
-            ..default()
-        },
-        Paddle,
+
+    commands.spawn(Paddle::new(
         PaddleLocation::Right,
         PlayerType::Computer,
-        Lives(STARTING_LIVES),
-        Collider(ColliderType::Paddle),
+        min_window_dimension,
     ));
 
-    commands.spawn((
-        Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
-        Transform {
-            translation: PaddleLocation::Bottom.position(min_window_dimension),
-            scale: PaddleLocation::Bottom.size(min_window_dimension),
-            ..default()
-        },
-        Paddle,
+    commands.spawn(Paddle::new(
         PaddleLocation::Bottom,
         PlayerType::Human,
-        Lives(STARTING_LIVES),
-        Collider(ColliderType::Paddle),
+        min_window_dimension,
     ));
 
-    commands.spawn((
-        Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
-        Transform {
-            translation: PaddleLocation::Top.position(min_window_dimension),
-            scale: PaddleLocation::Top.size(min_window_dimension),
-            ..default()
-        },
-        Paddle,
+    commands.spawn(Paddle::new(
         PaddleLocation::Top,
         PlayerType::Computer,
-        Lives(STARTING_LIVES),
-        Collider(ColliderType::Paddle),
+        min_window_dimension,
     ));
 }
 
