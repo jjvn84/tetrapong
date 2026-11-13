@@ -281,7 +281,7 @@ fn handle_lose_life(
             if *paddle_location == *location && lives.0 > 0 {
                 lives.0 -= 1;
 
-                if lives.0 <= 0 {
+                if lives.0 == 0 {
                     commands.entity(paddle).despawn();
                     eliminated.write(PaddleEliminated(*paddle_location));
                 }

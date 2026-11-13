@@ -2,6 +2,9 @@ use crate::plugins::ball::Ball;
 use crate::plugins::paddle::LoseLife;
 use crate::plugins::walls::WallLocation;
 use bevy::prelude::*;
+use core::f32::consts::PI;
+
+const MAX_BOUNCE_ANGLE: f32 = PI / 3.0; // 60 degrees
 
 pub struct PhysicsPlugin;
 
@@ -122,27 +125,36 @@ fn check_for_collisions(
                     }
                 }
                 ColliderType::Paddle => {
-                    // Reflect the ball's velocity when it collides
-                    let mut reflect_x = false;
-                    let mut reflect_y = false;
+                    // `Collision` names the face of the paddle that was hit.
+                    // `normal` points away from that face; `tangent` runs along it.
+                    let (normal, tangent) = match collision {
+                        Collision::Top => (Vec2::Y, Vec2::X),
+                        Collision::Bottom => (Vec2::NEG_Y, Vec2::X),
+                        Collision::Left => (Vec2::NEG_X, Vec2::Y),
+                        Collision::Right => (Vec2::X, Vec2::Y),
+                    };
 
-                    // Reflect only if the velocity is in the opposite direction of the collision
-                    // This prevents the ball from getting stuck inside the bar
-                    match collision {
-                        Collision::Left => reflect_x = ball_velocity.x > 0.0,
-                        Collision::Right => reflect_x = ball_velocity.x < 0.0,
-                        Collision::Top => reflect_y = ball_velocity.y < 0.0,
-                        Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
-                    }
+                    // Only bounce when the ball is moving into the paddle.
+                    if ball_velocity.0.dot(normal) < 0.0 {
+                        // Half the paddle's length along the tangent axis.
+                        let half_extent = 0.5
+                            * (collider_transform.scale.x * tangent.x.abs()
+                                + collider_transform.scale.y * tangent.y.abs());
 
-                    // Reflect velocity on the x-axis if we hit something on the x-axis
-                    if reflect_x {
-                        ball_velocity.x = -ball_velocity.x;
-                    }
+                        // -1 = one edge, 0 = centre, +1 = the other edge.
+                        let offset = ((ball_transform.translation.truncate()
+                            - collider_transform.translation.truncate())
+                        .dot(tangent)
+                            / half_extent)
+                            .clamp(-1.0, 1.0);
 
-                    // Reflect velocity on the y-axis if we hit something on the y-axis
-                    if reflect_y {
-                        ball_velocity.y = -ball_velocity.y;
+                        // Centre hits leave perpendicular to the paddle;
+                        // edge hits rotate up to MAX_BOUNCE_ANGLE.
+                        let angle = offset * MAX_BOUNCE_ANGLE;
+                        let direction = normal * angle.cos() + tangent * angle.sin();
+
+                        // Preserve the ball's current speed.
+                        ball_velocity.0 = direction * ball_velocity.0.length();
                     }
                 }
                 ColliderType::PowerUp => todo!(),
