@@ -35,7 +35,7 @@ elimination, but there is still no win/lose condition.
 - Power-ups (`ColliderType::PowerUp` exists but is unused and currently panics via `todo!()`)
 - Menus, pause menu, audio, and general polish
 - Human control for paddles other than the bottom one
-- Automated tests or CI
+- Automated tests
 
 ## How it plays
 
@@ -98,6 +98,12 @@ For a faster build of the game itself, use the release profile:
 ```sh
 cargo run --release
 ```
+
+### Prebuilt binaries
+
+Pushing a `v*` tag publishes Linux and Windows packages (`.tar.gz` and `.zip`) to the
+[Releases page](https://github.com/jjvn84/tetrapong/releases). Builds for every push and
+pull request are also available as workflow artifacts on the Actions tab.
 
 ## Project layout
 

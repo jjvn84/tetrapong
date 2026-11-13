@@ -121,8 +121,10 @@ This code targets Bevy 0.20, which differs from older examples online:
   the paddle is spawned as `PlayerType::Computer`.
 - **AI is intentionally imperfect.** Computer paddles skip movement randomly
   (`fail_probability`), and this is deliberate. Don't "fix" it without being asked.
-- **No tests or CI.** `cargo test` passes trivially. If you add logic that is hard to
-  verify by running the game, consider adding unit tests.
+- **No tests.** `cargo test` passes trivially. `.github/workflows/build.yml` packages
+  release builds for Linux and Windows and publishes them on `v*` tags, but there are no
+  automated tests yet. If you add logic that is hard to verify by running the game,
+  consider adding unit tests.
 
 ## Working style
 
