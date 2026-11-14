@@ -7,28 +7,32 @@ use crate::plugins::{
     paddle::PaddleLocation,
     physics::{Collider, ColliderType, Velocity},
 };
+use crate::theme;
 use bevy::prelude::*;
 use rand::RngExt;
 use rand::seq::IndexedRandom;
+use std::collections::HashMap;
 use strum::VariantArray;
 
-const POWERUP_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
-const POWERUP_SIZE: f32 = 3.0; // As a percentage of the window's minimum dimension
+const POWERUP_SIZE: f32 = 4.5; // As a percentage of the window's minimum dimension
 
 const MAXIMUM_NUMBER_OF_ACTIVE_POWERUPS: usize = 4;
+
+const TIME_BETWEEN_POWERUPS: f32 = 2.0;
 
 pub struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(SpawnTimer(Timer::from_seconds(2.0, TimerMode::Repeating)));
+        app.insert_resource(SpawnTimer(Timer::from_seconds(
+            TIME_BETWEEN_POWERUPS,
+            TimerMode::Repeating,
+        )));
+        app.add_systems(Startup, setup_power_up_assets);
         app.add_systems(Update, (spawn_power_up, handle_powerup_hit));
         app.add_message::<PowerUpHit>();
     }
 }
-
-#[derive(Resource)]
-struct SpawnTimer(Timer);
 
 #[derive(Component)]
 #[require(Collider(ColliderType::PowerUp))]
@@ -36,7 +40,7 @@ pub struct PowerUp {
     pub kind: PowerUpKind,
 }
 
-#[derive(VariantArray, Copy, Clone)]
+#[derive(VariantArray, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PowerUpKind {
     PaddleHalf,
     PaddleDouble,
@@ -48,10 +52,94 @@ pub enum PowerUpKind {
     EarnOneLife,
 }
 
+impl PowerUpKind {
+    /// Colour of the ring around the power-up badge, grouped by effect.
+    fn color(self) -> Color {
+        match self {
+            Self::PaddleHalf | Self::PaddleDouble => theme::POWERUP_WIDTH,
+            Self::PaddleSpeedHalf | Self::PaddleSpeedDouble => theme::POWERUP_PADDLE_SPEED,
+            Self::BallSpeedHalf | Self::BallSpeedDouble => theme::POWERUP_BALL_SPEED,
+            Self::EarnOneLife => theme::POWERUP_EARN_LIFE,
+            Self::LoseOneLife => theme::POWERUP_LOSE_LIFE,
+        }
+    }
+}
+
 #[derive(Message)]
 pub struct PowerUpHit {
     pub kind: PowerUpKind,
     pub paddle: PaddleLocation,
+}
+
+#[derive(Resource)]
+struct SpawnTimer(Timer);
+
+#[derive(Resource)]
+struct PowerUpAssets {
+    badge_mesh: Handle<Mesh>,
+    ring_mesh: Handle<Mesh>,
+    badge_material: Handle<ColorMaterial>,
+    glyph_material: Handle<ColorMaterial>,
+    kinds: HashMap<PowerUpKind, PowerUpKindAssets>,
+}
+
+struct PowerUpKindAssets {
+    glyph_mesh: Handle<Mesh>,
+    ring_material: Handle<ColorMaterial>,
+}
+
+fn setup_power_up_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let kinds: HashMap<PowerUpKind, PowerUpKindAssets> = PowerUpKind::VARIANTS
+        .iter()
+        .map(|kind| {
+            (
+                *kind,
+                PowerUpKindAssets {
+                    glyph_mesh: glyph_mesh(*kind, &mut meshes),
+                    ring_material: materials.add(ColorMaterial::from_color(kind.color())),
+                },
+            )
+        })
+        .collect();
+
+    commands.insert_resource(PowerUpAssets {
+        badge_mesh: meshes.add(Circle::new(0.5)),
+        ring_mesh: meshes.add(Annulus::new(0.40, 0.5)),
+        badge_material: materials.add(ColorMaterial::from_color(theme::POWERUP_BADGE)),
+        glyph_material: materials.add(ColorMaterial::from_color(theme::POWERUP_GLYPH)),
+        kinds,
+    });
+}
+
+/// Each kind gets a distinct glyph so it can be recognised by shape as well as
+/// by the ring colour.
+fn glyph_mesh(kind: PowerUpKind, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
+    match kind {
+        PowerUpKind::PaddleDouble => meshes.add(Rectangle::new(0.62, 0.14)),
+        PowerUpKind::PaddleHalf => meshes.add(Rectangle::new(0.32, 0.14)),
+        PowerUpKind::PaddleSpeedDouble => meshes.add(Triangle2d::new(
+            Vec2::new(0.34, 0.0),
+            Vec2::new(-0.26, 0.30),
+            Vec2::new(-0.26, -0.30),
+        )),
+        PowerUpKind::PaddleSpeedHalf => meshes.add(Triangle2d::new(
+            Vec2::new(0.22, 0.0),
+            Vec2::new(-0.17, 0.20),
+            Vec2::new(-0.17, -0.20),
+        )),
+        PowerUpKind::BallSpeedDouble => meshes.add(Circle::new(0.22)),
+        PowerUpKind::BallSpeedHalf => meshes.add(Annulus::new(0.11, 0.22)),
+        PowerUpKind::EarnOneLife => meshes.add(Rhombus::new(0.40, 0.55)),
+        PowerUpKind::LoseOneLife => meshes.add(Triangle2d::new(
+            Vec2::new(0.0, -0.32),
+            Vec2::new(0.33, 0.22),
+            Vec2::new(-0.33, 0.22),
+        )),
+    }
 }
 
 fn spawn_power_up(
@@ -59,6 +147,7 @@ fn spawn_power_up(
     mut timer: ResMut<SpawnTimer>,
     mut commands: Commands,
     current_power_ups: Query<&PowerUp>,
+    assets: Res<PowerUpAssets>,
     window: Query<&mut Window>,
 ) {
     if current_power_ups.iter().len() == MAXIMUM_NUMBER_OF_ACTIVE_POWERUPS {
@@ -91,21 +180,61 @@ fn spawn_power_up(
         let mut rng = rand::rng();
         let powerup_kind = *PowerUpKind::VARIANTS.choose(&mut rng).unwrap();
 
-        commands.spawn((
-            Sprite::from_color(POWERUP_COLOR, Vec2::ONE),
+        let size = POWERUP_SIZE * min_window_dimension / 100.0;
+
+        spawn_power_up_at(
+            &mut commands,
+            &assets,
+            powerup_kind,
+            Vec3::new(powerup_x, powerup_y, 0.9),
+            size,
+        );
+    }
+}
+
+/// Spawns a collectible badge at `position` scaled to `size`.
+///
+/// The root carries the collider so the collision box stays independent of the
+/// decorative children.
+fn spawn_power_up_at(
+    commands: &mut Commands,
+    assets: &PowerUpAssets,
+    kind: PowerUpKind,
+    position: Vec3,
+    size: f32,
+) {
+    let kind_assets = assets.kinds.get(&kind).unwrap();
+
+    commands
+        .spawn((
             Transform {
-                translation: Vec3::new(powerup_x, powerup_y, 1.0),
-                scale: Vec3::new(
-                    POWERUP_SIZE * min_window_dimension / 100.0,
-                    POWERUP_SIZE * min_window_dimension / 100.0,
-                    1.0,
-                ),
+                translation: position,
+                scale: Vec3::new(size, size, 1.0),
                 ..default()
             },
+            Visibility::default(),
             Collider(ColliderType::PowerUp),
-            PowerUp { kind: powerup_kind },
-        ));
-    }
+            PowerUp { kind },
+        ))
+        .with_children(|parent| {
+            // Dark badge to separate the power-up from the arena.
+            parent.spawn((
+                Mesh2d(assets.badge_mesh.clone()),
+                MeshMaterial2d(assets.badge_material.clone()),
+            ));
+            // Coloured ring identifying the category.
+            parent.spawn((
+                Mesh2d(assets.ring_mesh.clone()),
+                MeshMaterial2d(kind_assets.ring_material.clone()),
+                Transform::from_xyz(0.0, 0.0, 0.01),
+            ));
+            // White glyph identifying the specific effect.
+            parent.spawn((
+                Mesh2d(kind_assets.glyph_mesh.clone()),
+                MeshMaterial2d(assets.glyph_material.clone()),
+                Transform::from_xyz(0.0, 0.0, 0.02),
+            ));
+        });
 }
 
 fn handle_powerup_hit(

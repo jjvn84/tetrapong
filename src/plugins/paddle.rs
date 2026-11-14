@@ -4,6 +4,7 @@ use crate::{
         ball::BALL_STARTING_POSITION, ball::Ball, ball::ServePause, physics::Collider,
         physics::ColliderType, physics::Velocity, walls::WALL_THICKNESS,
     },
+    theme,
 };
 use bevy::{prelude::*, window::WindowResized};
 use rand::RngExt;
@@ -14,7 +15,6 @@ pub const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the win
 const PADDLE_SPEED: f32 = 64.0;
 // How close can the paddle get to the wall
 
-const PADDLE_COLOR: Color = Color::srgb(0.3, 0.3, 0.7);
 pub struct PaddlePlugin;
 
 impl Plugin for PaddlePlugin {
@@ -48,7 +48,7 @@ impl Paddle {
             speed_multiplier: 1.0,
         };
         (
-            Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
+            Sprite::from_color(theme::paddle_color(location), Vec2::ONE),
             Transform {
                 translation: paddle.position(min_window_dimension),
                 scale: paddle.size(min_window_dimension),
@@ -60,18 +60,7 @@ impl Paddle {
             Collider(ColliderType::Paddle),
         )
     }
-}
 
-#[derive(PartialEq, Eq, Debug, Copy, Clone)]
-
-pub enum PaddleLocation {
-    Left,
-    Right,
-    Bottom,
-    Top,
-}
-
-impl Paddle {
     fn position(&self, min_window_dimension: f32) -> Vec3 {
         let paddle_distance = min_window_dimension / 2.0
             - min_window_dimension * GAP_BETWEEN_PADDLE_AND_FLOOR / 100.0;
@@ -97,6 +86,15 @@ impl Paddle {
             }
         }
     }
+}
+
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+
+pub enum PaddleLocation {
+    Left,
+    Right,
+    Bottom,
+    Top,
 }
 
 #[derive(Component)]
@@ -168,7 +166,7 @@ fn move_paddle(
     time: Res<Time>,
 ) {
     for (paddle, player_type, mut paddle_transform) in paddle_query {
-        let mut direction = Vec3::new(0.0, 0.0, 0.0);
+        let mut direction = Vec3::ZERO;
 
         let ball = BoundingCircle::new(
             ball_transform.translation.truncate(),
@@ -185,52 +183,69 @@ fn move_paddle(
         let fail_probability = rand::rng().random_range(0.0..10.0);
 
         match (player_type, paddle.location) {
+            (PlayerType::Human, PaddleLocation::Left) => {
+                if keyboard_input.pressed(KeyCode::KeyQ) {
+                    direction += Vec3::Y;
+                }
+
+                if keyboard_input.pressed(KeyCode::KeyA) {
+                    direction -= Vec3::Y;
+                }
+            }
+            (PlayerType::Human, PaddleLocation::Right) => {
+                if keyboard_input.pressed(KeyCode::KeyI) {
+                    direction += Vec3::Y;
+                }
+
+                if keyboard_input.pressed(KeyCode::KeyK) {
+                    direction -= Vec3::Y;
+                }
+            }
             (PlayerType::Human, PaddleLocation::Bottom) => {
                 if keyboard_input.pressed(KeyCode::ArrowLeft) {
-                    direction -= Vec3::new(1.0, 0.0, 0.0);
+                    direction -= Vec3::X;
                 }
 
                 if keyboard_input.pressed(KeyCode::ArrowRight) {
-                    direction += Vec3::new(1.0, 0.0, 0.0);
+                    direction += Vec3::X;
                 }
             }
             (PlayerType::Human, PaddleLocation::Top) => {
-                if keyboard_input.pressed(KeyCode::KeyA) {
-                    direction -= Vec3::new(1.0, 0.0, 0.0);
+                if keyboard_input.pressed(KeyCode::KeyF) {
+                    direction -= Vec3::X;
                 }
 
-                if keyboard_input.pressed(KeyCode::KeyD) {
-                    direction += Vec3::new(1.0, 0.0, 0.0);
+                if keyboard_input.pressed(KeyCode::KeyG) {
+                    direction += Vec3::X;
                 }
             }
             (PlayerType::Computer, PaddleLocation::Left)
             | (PlayerType::Computer, PaddleLocation::Right) => {
                 if offset.y < 0.0 {
-                    direction -= Vec3::new(0.0, 1.0, 0.0);
+                    direction -= Vec3::Y;
                 }
 
                 if offset.y > 0.0 {
-                    direction += Vec3::new(0.0, 1.0, 0.0);
+                    direction += Vec3::Y;
                 }
 
                 if fail_probability >= 5.0 {
-                    direction = Vec3::new(0.0, 0.0, 0.0)
+                    direction = Vec3::ZERO
                 }
             }
             (PlayerType::Computer, PaddleLocation::Top)
             | (PlayerType::Computer, PaddleLocation::Bottom) => {
                 if offset.x < 0.0 {
-                    direction -= Vec3::new(1.0, 0.0, 0.0);
+                    direction -= Vec3::X;
                 }
 
                 if offset.x > 0.0 {
-                    direction += Vec3::new(1.0, 0.0, 0.0);
+                    direction += Vec3::X;
                 }
                 if fail_probability >= 5.0 {
-                    direction = Vec3::new(0.0, 0.0, 0.0)
+                    direction = Vec3::ZERO
                 }
             }
-            _ => direction += Vec3::new(0.0, 0.0, 0.0),
         }
 
         let Ok(window) = window.single() else {
@@ -246,14 +261,18 @@ fn move_paddle(
         // Update the paddle position,
         // making sure it doesn't cause the paddle to leave the arena
 
-        let left_bound =
-            -min_window_dimension / 2.0 + paddle_transform.scale.x / 2.0 + WALL_THICKNESS;
-        let right_bound =
-            min_window_dimension / 2.0 - paddle_transform.scale.x / 2.0 - WALL_THICKNESS;
-        let bottom_bound =
-            -min_window_dimension / 2.0 + paddle_transform.scale.y / 2.0 + WALL_THICKNESS;
-        let top_bound =
-            min_window_dimension / 2.0 - paddle_transform.scale.y / 2.0 - WALL_THICKNESS;
+        let left_bound = -min_window_dimension / 2.0
+            + paddle_transform.scale.x / 2.0
+            + WALL_THICKNESS * min_window_dimension / 100.0;
+        let right_bound = min_window_dimension / 2.0
+            - paddle_transform.scale.x / 2.0
+            - WALL_THICKNESS * min_window_dimension / 100.0;
+        let bottom_bound = -min_window_dimension / 2.0
+            + paddle_transform.scale.y / 2.0
+            + WALL_THICKNESS * min_window_dimension / 100.0;
+        let top_bound = min_window_dimension / 2.0
+            - paddle_transform.scale.y / 2.0
+            - WALL_THICKNESS * min_window_dimension / 100.0;
 
         paddle_transform.translation.x = new_paddle_position.x.clamp(left_bound, right_bound);
         paddle_transform.translation.y = new_paddle_position.y.clamp(bottom_bound, top_bound);
@@ -264,8 +283,9 @@ fn handle_lose_life(
     mut commands: Commands,
     mut messages: MessageReader<LoseLife>,
     mut eliminated: MessageWriter<PaddleEliminated>,
-    mut paddles: Query<(Entity, &Paddle, &mut Lives)>,
-    ball: Single<(Entity, &mut Ball, &mut Transform, &mut Velocity), With<Ball>>,
+    mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives), With<Paddle>>,
+    ball: Single<(Entity, &mut Ball, &mut Transform, &mut Velocity), (With<Ball>, Without<Paddle>)>,
+    window: Query<&mut Window>,
 ) {
     let (ball_entity, mut ball, mut ball_transform, mut ball_velocity) = ball.into_inner();
     let mut point_already_scored = false;
@@ -275,8 +295,13 @@ fn handle_lose_life(
         if point_already_scored {
             continue;
         }
-        for (paddle_entity, paddle, mut lives) in &mut paddles {
+        let Ok(window) = window.single() else {
+            return;
+        };
+        let min_window_dimension = window.width().min(window.height());
+        for (paddle_entity, mut paddle, mut paddle_transform, mut lives) in &mut paddles {
             if paddle.location == *location && lives.0 > 0 {
+                // Reduce lives
                 lives.0 -= 1;
 
                 if lives.0 == 0 {
@@ -284,9 +309,16 @@ fn handle_lose_life(
                     eliminated.write(PaddleEliminated(paddle.location));
                 }
 
+                // Reset paddle parameters
+                paddle.width_multiplier = 1.0;
+                paddle_transform.scale = paddle.size(min_window_dimension);
+                paddle.speed_multiplier = 1.0;
+
+                // Reset ball
                 ball_transform.translation = BALL_STARTING_POSITION;
                 ball_velocity.0 = Vec2::ZERO;
                 ball.last_hit_by = None;
+                ball.speed_multiplier = 1.0;
 
                 commands.entity(ball_entity).insert(ServePause::new());
                 point_already_scored = true;

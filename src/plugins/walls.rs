@@ -1,8 +1,8 @@
 use crate::plugins::{paddle::PaddleLocation, physics::Collider, physics::ColliderType};
+use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 
-pub const WALL_THICKNESS: f32 = 10.0;
-const WALL_COLOR: Color = Color::srgb(0.8, 0.8, 0.8);
+pub const WALL_THICKNESS: f32 = 1.0; // As a percentage of the window's minimum dimension
 
 pub struct WallsPlugin;
 
@@ -28,7 +28,7 @@ impl Wall {
         (
             Wall,
             location.clone(),
-            Sprite::from_color(WALL_COLOR, Vec2::ONE),
+            Sprite::from_color(theme::WALL, Vec2::ONE),
             Transform {
                 // We need to convert our Vec2 into a Vec3, by giving it a z-coordinate
                 // This is used to determine the order of our sprites
@@ -54,22 +54,36 @@ impl WallLocation {
     /// Location of the *center* of the wall, used in `transform.translation()`
     fn position(&self, min_window_dimension: f32) -> Vec2 {
         match self {
-            WallLocation::Left => Vec2::new((-min_window_dimension + WALL_THICKNESS) / 2.0, 0.),
-            WallLocation::Right => Vec2::new((min_window_dimension - WALL_THICKNESS) / 2.0, 0.),
-            WallLocation::Bottom => Vec2::new(0., (-min_window_dimension + WALL_THICKNESS) / 2.0),
-            WallLocation::Top => Vec2::new(0., (min_window_dimension - WALL_THICKNESS) / 2.0),
+            WallLocation::Left => Vec2::new(
+                (-min_window_dimension + WALL_THICKNESS * min_window_dimension / 100.0) / 2.0,
+                0.,
+            ),
+            WallLocation::Right => Vec2::new(
+                (min_window_dimension - WALL_THICKNESS * min_window_dimension / 100.0) / 2.0,
+                0.,
+            ),
+            WallLocation::Bottom => Vec2::new(
+                0.,
+                (-min_window_dimension + WALL_THICKNESS * min_window_dimension / 100.0) / 2.0,
+            ),
+            WallLocation::Top => Vec2::new(
+                0.,
+                (min_window_dimension - WALL_THICKNESS * min_window_dimension / 100.0) / 2.0,
+            ),
         }
     }
 
     /// (x, y) dimensions of the wall, used in `transform.scale()`
     fn size(&self, min_window_dimension: f32) -> Vec2 {
         match self {
-            WallLocation::Left | WallLocation::Right => {
-                Vec2::new(WALL_THICKNESS, min_window_dimension)
-            }
-            WallLocation::Bottom | WallLocation::Top => {
-                Vec2::new(min_window_dimension, WALL_THICKNESS)
-            }
+            WallLocation::Left | WallLocation::Right => Vec2::new(
+                WALL_THICKNESS * min_window_dimension / 100.0,
+                min_window_dimension,
+            ),
+            WallLocation::Bottom | WallLocation::Top => Vec2::new(
+                min_window_dimension,
+                WALL_THICKNESS * min_window_dimension / 100.0,
+            ),
         }
     }
 

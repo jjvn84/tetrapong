@@ -1,17 +1,17 @@
-use crate::plugins::{paddle::PaddleLocation, physics::Velocity};
+use crate::plugins::paddle::PaddleLocation;
+use crate::plugins::physics::Velocity;
+use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 
 pub const BALL_STARTING_POSITION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
 const BALL_DIAMETER: f32 = 3.0; // As a percentage of the window's minimum dimension
-pub const BALL_SPEED: f32 = 50.0;
+pub const BALL_SPEED: f32 = 50.0; // As a percentage of the window's minimum dimension
 
 // Speed power-ups multiply the ball's speed, but never beyond these bounds.
 const MIN_SPEED_MULTIPLIER: f32 = 1.0;
 const MAX_SPEED_MULTIPLIER: f32 = 4.0;
 
 const SERVE_PAUSE_SECONDS: f32 = 2.0;
-
-const BALL_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
 
 pub struct BallPlugin;
 
@@ -25,7 +25,7 @@ impl Plugin for BallPlugin {
 #[derive(Component)]
 pub struct Ball {
     pub last_hit_by: Option<PaddleLocation>,
-    speed_multiplier: f32,
+    pub speed_multiplier: f32,
 }
 
 impl Ball {
@@ -68,7 +68,7 @@ fn setup(
 
     commands.spawn((
         Mesh2d(meshes.add(Circle::default())),
-        MeshMaterial2d(materials.add(BALL_COLOR)),
+        MeshMaterial2d(materials.add(theme::BALL)),
         Transform::from_translation(BALL_STARTING_POSITION)
             .with_scale(Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.)),
         Ball {
@@ -86,8 +86,11 @@ fn on_window_resize(
     let (mut ball_transform, mut ball_velocity, ball) = ball.into_inner();
     for window in resize_reader.read() {
         let min_window_dimension = window.width.min(window.height);
-        (ball_transform.translation.x, ball_transform.translation.y) = (0.0, 0.0);
+
+        ball_transform.translation = BALL_STARTING_POSITION;
+
         ball_transform.scale = Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.);
+
         let initial_ball_angle = rand::random_range(0.0..360.0) as f32;
         let initial_ball_direction = Vec2::new(initial_ball_angle.cos(), initial_ball_angle.sin());
         ball_velocity.0 = initial_ball_direction.normalize() * ball.speed(min_window_dimension);
@@ -104,6 +107,7 @@ fn tick_serve_pause(
         return;
     };
     let min_window_dimension = window.width().min(window.height());
+
     for (entity, mut velocity, ball, mut pause) in ball {
         pause.0.tick(time.delta());
 

@@ -25,14 +25,14 @@ elimination, but there is still no win/lose condition.
 - Scoring: when the ball hits a wall, that side loses a life
 - Ball reset and a 2-second serve pause before relaunching in a random direction
 - Paddle elimination at 0 lives, with the HUD showing 0
+- Power-ups that spawn in the arena and apply to the last paddle to hit the ball
+- Dark neon theme with a colour per side and a distinct glyph for every power-up
 
 **Not implemented yet**
 
 - Game over / win conditions, or restarting after the game ends
 - Behaviour for an eliminated side: its wall still emits `LoseLife`, but no paddle remains
   to lose a life, so the ball keeps bouncing off that wall
-- Improved ball physics (speed limits, contact-angle influence, avoiding repetitive paths)
-- Power-ups (`ColliderType::PowerUp` exists but is unused and currently panics via `todo!()`)
 - Menus, pause menu, audio, and general polish
 - Human control for paddles other than the bottom one
 - Automated tests
@@ -46,6 +46,42 @@ elimination, but there is still no win/lose condition.
 5. At 0 lives, the paddle is removed and its HUD label shows 0.
 
 There is no winner yet — the game keeps running after paddles are eliminated.
+
+## Power-ups
+
+Power-ups appear at random spots inside the arena every couple of seconds (up to four at a
+time). When the ball touches one, the power-up is collected and applied to the paddle that
+hit the ball last.
+
+Each power-up is drawn as a dark circular badge with a coloured ring and a unique white
+glyph, so they can be told apart by shape and by colour:
+
+| Glyph                   | Ring colour | Power-up            | Effect                                             |
+| ----------------------- | ----------- | ------------------- | -------------------------------------------------- |
+| Wide horizontal bar     | Blue        | `PaddleDouble`      | Doubles paddle width (up to 4× the original)       |
+| Short horizontal bar    | Blue        | `PaddleHalf`        | Halves paddle width (down to ¼ of the original)    |
+| Triangle pointing right | Violet      | `PaddleSpeedDouble` | Doubles paddle movement speed (up to 4×)           |
+| Small triangle right    | Violet      | `PaddleSpeedHalf`   | Halves paddle movement speed (down to ¼)           |
+| Filled circle           | Orange      | `BallSpeedDouble`   | Doubles the ball speed (capped at 4×)              |
+| Ring                    | Orange      | `BallSpeedHalf`     | Halves the ball speed (never below the base speed) |
+| Diamond                 | Green       | `EarnOneLife`       | Grants the paddle one extra life                   |
+| Triangle pointing down  | Red         | `LoseOneLife`       | Removes one life; at 0 the paddle is eliminated    |
+
+## Visual style
+
+The arena uses a dark navy background with a uniform wall colour, while each paddle has its
+own accent colour so the four sides stay easy to tell apart. All colours live in
+`src/theme.rs`; change them there to retheme the whole game.
+
+| Element               | Colour                            |
+| --------------------- | --------------------------------- |
+| Left paddle           | Cyan                              |
+| Right paddle          | Magenta                           |
+| Bottom paddle (human) | Lime                              |
+| Top paddle            | Amber                             |
+| Walls                 | Slate (uniform on all four sides) |
+| Ball                  | Warm white                        |
+| HUD panels            | Dark slate, with per-side text    |
 
 ## Controls
 
@@ -114,12 +150,14 @@ pull request are also available as workflow artifacts on the Actions tab.
 ├── flake.nix             # Nix dev shell with Rust and Bevy system libraries
 └── src
     ├── main.rs           # App setup: plugins, camera, shared constants
+    ├── theme.rs          # Central colour palette used by every plugin
     └── plugins
         ├── ball.rs       # Ball entity, sizing, serve-pause timer and relaunch
         ├── paddle.rs     # Paddles, input/AI, lives, life-loss and elimination
         ├── physics.rs    # Velocity, colliders, collisions, emits LoseLife on wall hits
         ├── walls.rs      # Arena walls and their PaddleLocation ownership
-        └── hud.rs        # On-screen lives displays and eliminated state
+        ├── hud.rs        # On-screen lives panels and eliminated state
+        └── powerups.rs   # Power-up spawning, badge/glyph visuals and effects
 ```
 
 The game is organised as one Bevy plugin per concern, registered in `src/main.rs`. Arena
@@ -139,8 +177,7 @@ Rough order of intended work:
    the game).
 3. Improve ball physics (speed limits, angles based on paddle contact).
 4. Let players choose which side(s) are human-controlled.
-5. Add power-ups.
-6. Menus, audio, and visual polish.
+5. Menus, audio, and further visual polish (glow, trails, hit effects).
 
 ## License
 

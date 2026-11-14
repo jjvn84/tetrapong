@@ -1,18 +1,17 @@
 use bevy::prelude::*;
 mod plugins;
+mod theme;
 use crate::plugins::{
     ball::BallPlugin, hud::HudPlugin, paddle::PaddlePlugin, physics::PhysicsPlugin,
     powerups::PowerUpsPlugin, walls::WallsPlugin,
 };
-
-const BACKGROUND_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
 const STARTING_LIVES: u32 = 3;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(ClearColor(BACKGROUND_COLOR))
+        .insert_resource(ClearColor(theme::BACKGROUND))
         .add_plugins(WallsPlugin)
         .add_plugins(BallPlugin)
         .add_plugins(PaddlePlugin)

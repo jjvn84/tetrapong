@@ -51,11 +51,16 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
   and despawning eliminated paddles.
 - `physics.rs` — `Velocity`, `Collider`/`ColliderType`, `apply_velocity`, and
   `check_for_collisions` (AABB vs. bounding circle reflection). Emits `LoseLife` when the
-  ball hits a wall.
+  ball hits a wall and `PowerUpHit` when it touches a power-up.
 - `walls.rs` — spawns the four arena walls, each carrying a `WallLocation` component, and
   keeps them aligned on resize. `WallLocation::owner` maps a wall to its `PaddleLocation`.
-- `hud.rs` — spawns and updates the per-side lives text, including the 0 state when a
+- `hud.rs` — spawns and updates the per-side lives panels, including the 0 state when a
   paddle is eliminated.
+- `powerups.rs` — `PowerUpKind`, spawning of collectible badges at random positions, their
+  preloaded meshes/materials, and applying each effect to the paddle that last hit the ball.
+
+The palette lives in `src/theme.rs`; plugins import colours from it rather than defining
+their own constants.
 
 Plugins are declared in `src/plugins.rs` and registered in `src/main.rs`, along with the
 camera and shared constants such as `STARTING_LIVES`.
@@ -84,6 +89,15 @@ camera and shared constants such as `STARTING_LIVES`.
   to 0; don't couple the HUD back to the paddle entity.
 - **One point per frame.** A corner hit can emit multiple `LoseLife` messages in one frame;
   `handle_lose_life` guards with `point_already_scored`.
+- **Colours come from `theme.rs`.** Don't hard-code `Color::srgb` values in plugins; add a
+  constant (or helper such as `theme::paddle_color`) instead. Per-side identity is carried by
+  paddle colour; walls and the arena stay uniform.
+- **Power-ups are preloaded.** `PowerUpsPlugin` builds a `PowerUpAssets` resource once in
+  `Startup` (badge, ring, glyph meshes and materials). Reuse those handles when spawning;
+  don't build meshes in the spawn loop.
+- **Power-up entity layout.** The root entity holds `Transform` (sized from the window),
+  `Collider`, and `PowerUp`, so collisions stay tied to the root. Badge, coloured ring, and
+  white glyph are children and may be restyled without changing collision size.
 
 ### Bevy 0.20 API notes
 
@@ -93,6 +107,8 @@ This code targets Bevy 0.20, which differs from older examples online:
   `MessageReader<T>` / `MessageWriter<T>`. This is what `WindowResized`, `LoseLife`, and
   `PaddleEliminated` use. `Event`/`On` are the separate observer API — don't mix them up.
 - `TextFont` takes `font_size: FontSize::Px(..)` in this version; check existing HUD code.
+- `BorderRadius` is a field on `Node` (`node.border_radius = BorderRadius::all(..)`), not a
+  standalone UI component.
 - Required components (`#[require(...)]`) are used, e.g. `Wall` requires `Sprite`,
   `Transform`, and `Collider`.
 - `Single<...>` validates that the query matches exactly one entity and skips the system
@@ -112,8 +128,10 @@ This code targets Bevy 0.20, which differs from older examples online:
   the intended rule before changing this.
 - **Walls are solid.** The ball reflects off a wall in the same frame the point is scored;
   `handle_lose_life` then resets it. A wall hit is the scoring trigger, not a pass-through.
-- **`ColliderType::PowerUp => todo!()`** will panic if a power-up collider is ever hit.
-  Power-ups are unimplemented.
+- **Power-ups need a `last_hit_by`.** A power-up is only awarded when `ball.last_hit_by` is
+  set; a ball that has never touched a paddle collects nothing and the badge stays in place.
+- **Power-ups don't bounce the ball.** `ColliderType::PowerUp` despawns the badge and emits
+  `PowerUpHit` without reflecting the ball's velocity, so the ball passes through it.
 - **Resize still assumes entity order.** `walls.rs::on_window_resize` maps query iteration
   order to `WallLocation` even though walls now carry a `WallLocation` component. Prefer
   querying `(&WallLocation, &mut Transform)` if you touch it.
