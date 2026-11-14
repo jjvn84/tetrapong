@@ -2,7 +2,7 @@ use bevy::prelude::*;
 mod plugins;
 use crate::plugins::{
     ball::BallPlugin, hud::HudPlugin, paddle::PaddlePlugin, physics::PhysicsPlugin,
-    walls::WallsPlugin,
+    powerups::PowerUpsPlugin, walls::WallsPlugin,
 };
 
 const BACKGROUND_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
@@ -18,6 +18,7 @@ fn main() {
         .add_plugins(PaddlePlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(HudPlugin)
+        .add_plugins(PowerUpsPlugin)
         .add_systems(Startup, setup)
         .run();
 }

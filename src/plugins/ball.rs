@@ -1,4 +1,4 @@
-use crate::plugins::physics::Velocity;
+use crate::plugins::{paddle::PaddleLocation, physics::Velocity};
 use bevy::{prelude::*, window::WindowResized};
 
 pub const BALL_STARTING_POSITION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
@@ -19,7 +19,9 @@ impl Plugin for BallPlugin {
 }
 
 #[derive(Component)]
-pub struct Ball;
+pub struct Ball {
+    pub last_hit_by: Option<PaddleLocation>,
+}
 
 #[derive(Component)]
 pub struct ServePause(pub Timer);
@@ -52,7 +54,7 @@ fn setup(
         MeshMaterial2d(materials.add(BALL_COLOR)),
         Transform::from_translation(BALL_STARTING_POSITION)
             .with_scale(Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.)),
-        Ball,
+        Ball { last_hit_by: None },
         Velocity(initial_ball_direction.normalize() * BALL_SPEED),
     ));
 }

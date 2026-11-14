@@ -1,5 +1,5 @@
 use crate::STARTING_LIVES;
-use crate::plugins::paddle::{Lives, PaddleEliminated, PaddleLocation};
+use crate::plugins::paddle::{Lives, Paddle, PaddleEliminated, PaddleLocation};
 use bevy::prelude::*;
 
 pub struct HudPlugin;
@@ -79,13 +79,13 @@ fn setup(mut commands: Commands) {
 }
 
 fn update_lives_displays(
-    paddles_query: Query<(&PaddleLocation, &Lives), Changed<Lives>>,
+    paddles_query: Query<(&Paddle, &Lives), Changed<Lives>>,
     mut displays_query: Query<(&LivesDisplay, &mut Text)>,
 ) {
-    for (paddle_location, lives) in &paddles_query {
+    for (paddle, lives) in &paddles_query {
         for (display, mut text) in &mut displays_query {
-            if display.0 == *paddle_location {
-                **text = format!("{:?}: {}", paddle_location, lives.0)
+            if display.0 == paddle.location {
+                **text = format!("{:?}: {}", paddle.location, lives.0)
             }
         }
     }

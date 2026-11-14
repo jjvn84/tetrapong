@@ -1,5 +1,6 @@
 use crate::plugins::ball::Ball;
-use crate::plugins::paddle::LoseLife;
+use crate::plugins::paddle::{LoseLife, Paddle};
+use crate::plugins::powerups::{PowerUp, PowerUpHit};
 use crate::plugins::walls::WallLocation;
 use bevy::prelude::*;
 use core::f32::consts::PI;
@@ -77,13 +78,27 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
 }
 
 fn check_for_collisions(
-    ball_query: Single<(&mut Velocity, &Transform), With<Ball>>,
-    collider_query: Query<(&Collider, &Transform, Option<&WallLocation>), With<Collider>>,
+    mut commands: Commands,
+    ball_query: Single<(&mut Ball, &mut Velocity, &Transform), With<Ball>>,
+    collider_query: Query<
+        (
+            Entity,
+            &Collider,
+            &Transform,
+            Option<&WallLocation>,
+            Option<&Paddle>,
+            Option<&PowerUp>,
+        ),
+        With<Collider>,
+    >,
     mut lose_life: MessageWriter<LoseLife>,
+    mut powerup_hit: MessageWriter<PowerUpHit>,
 ) {
-    let (mut ball_velocity, ball_transform) = ball_query.into_inner();
+    let (mut ball, mut ball_velocity, ball_transform) = ball_query.into_inner();
 
-    for (collider, collider_transform, wall_location) in &collider_query {
+    for (collider_entity, collider, collider_transform, wall_location, paddle, power_up) in
+        &collider_query
+    {
         let collision = ball_collision(
             BoundingCircle::new(
                 ball_transform.translation.truncate(),
@@ -136,6 +151,10 @@ fn check_for_collisions(
 
                     // Only bounce when the ball is moving into the paddle.
                     if ball_velocity.0.dot(normal) < 0.0 {
+                        if let Some(paddle) = paddle {
+                            ball.last_hit_by = Some(paddle.location);
+                        }
+
                         // Half the paddle's length along the tangent axis.
                         let half_extent = 0.5
                             * (collider_transform.scale.x * tangent.x.abs()
@@ -157,7 +176,15 @@ fn check_for_collisions(
                         ball_velocity.0 = direction * ball_velocity.0.length();
                     }
                 }
-                ColliderType::PowerUp => todo!(),
+                ColliderType::PowerUp => {
+                    if let (Some(last_hit_by), Some(power_up)) = (ball.last_hit_by, power_up) {
+                        powerup_hit.write(PowerUpHit {
+                            kind: power_up.kind,
+                            paddle: last_hit_by,
+                        });
+                        commands.entity(collider_entity).despawn();
+                    }
+                }
             }
         }
     }

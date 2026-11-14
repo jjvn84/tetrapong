@@ -10,7 +10,7 @@ use rand::RngExt;
 
 const PADDLE_WIDTH: f32 = 16.0; // As a percentage of the window's minimum dimension
 const PADDLE_HEIGHT: f32 = 2.0; // As a percentage of the window's minimum dimension
-const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the window's minimum dimension
+pub const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the window's minimum dimension
 const PADDLE_SPEED: f32 = 500.0;
 // How close can the paddle get to the wall
 
@@ -29,31 +29,30 @@ impl Plugin for PaddlePlugin {
 }
 
 #[derive(Component)]
-struct Paddle;
+#[require(Collider(ColliderType::Paddle))]
+pub struct Paddle {
+    pub location: PaddleLocation,
+    pub width_multiplier: f32,
+}
 
 impl Paddle {
     fn new(
         location: PaddleLocation,
         player_type: PlayerType,
         min_window_dimension: f32,
-    ) -> (
-        Sprite,
-        Transform,
-        Paddle,
-        PaddleLocation,
-        PlayerType,
-        Lives,
-        Collider,
-    ) {
+    ) -> (Sprite, Transform, Paddle, PlayerType, Lives, Collider) {
+        let paddle = Paddle {
+            location,
+            width_multiplier: 1.0,
+        };
         (
             Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
             Transform {
-                translation: location.position(min_window_dimension),
-                scale: location.size(min_window_dimension),
+                translation: paddle.position(min_window_dimension),
+                scale: paddle.size(min_window_dimension),
                 ..default()
             },
-            Paddle,
-            location,
+            paddle,
             player_type,
             Lives(STARTING_LIVES),
             Collider(ColliderType::Paddle),
@@ -61,7 +60,7 @@ impl Paddle {
     }
 }
 
-#[derive(Component, PartialEq, Eq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 
 pub enum PaddleLocation {
     Left,
@@ -70,12 +69,12 @@ pub enum PaddleLocation {
     Top,
 }
 
-impl PaddleLocation {
+impl Paddle {
     fn position(&self, min_window_dimension: f32) -> Vec3 {
         let paddle_distance = min_window_dimension / 2.0
             - min_window_dimension * GAP_BETWEEN_PADDLE_AND_FLOOR / 100.0;
 
-        match &self {
+        match &self.location {
             PaddleLocation::Left => Vec3::new(-paddle_distance, 0.0, 0.0),
             PaddleLocation::Right => Vec3::new(paddle_distance, 0.0, 0.0),
             PaddleLocation::Bottom => Vec3::new(0.0, -paddle_distance, 0.0),
@@ -83,16 +82,16 @@ impl PaddleLocation {
         }
     }
 
-    fn size(&self, min_window_dimension: f32) -> Vec3 {
+    pub(crate) fn size(&self, min_window_dimension: f32) -> Vec3 {
         let paddle_width = PADDLE_WIDTH * min_window_dimension / 100.0;
         let paddle_height = PADDLE_HEIGHT * min_window_dimension / 100.0;
 
-        match &self {
+        match &self.location {
             PaddleLocation::Left | PaddleLocation::Right => {
-                Vec3::new(paddle_height, paddle_width, 1.0)
+                Vec3::new(paddle_height, self.width_multiplier * paddle_width, 1.0)
             }
             PaddleLocation::Bottom | PaddleLocation::Top => {
-                Vec3::new(paddle_width, paddle_height, 1.0)
+                Vec3::new(self.width_multiplier * paddle_width, paddle_height, 1.0)
             }
         }
     }
@@ -148,27 +147,27 @@ fn setup(mut commands: Commands, window: Query<&mut Window>) {
 }
 
 fn on_window_resize(
-    mut paddles_query: Query<(&PaddleLocation, &mut Transform), With<Paddle>>,
+    mut paddles_query: Query<(&Paddle, &mut Transform), With<Paddle>>,
     mut resize_reader: MessageReader<WindowResized>,
 ) {
     for window in resize_reader.read() {
         let min_window_dimension = window.width.min(window.height);
 
-        for (paddle_location, mut paddle) in paddles_query.iter_mut() {
-            paddle.translation = paddle_location.position(min_window_dimension);
-            paddle.scale = paddle_location.size(min_window_dimension);
+        for (paddle, mut paddle_transform) in paddles_query.iter_mut() {
+            paddle_transform.translation = paddle.position(min_window_dimension);
+            paddle_transform.scale = paddle.size(min_window_dimension);
         }
     }
 }
 
 fn move_paddle(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    paddle_query: Query<(&PaddleLocation, &PlayerType, &mut Transform), With<Paddle>>,
+    paddle_query: Query<(&Paddle, &PlayerType, &mut Transform), With<Paddle>>,
     ball_transform: Single<&Transform, (With<Ball>, Without<Paddle>)>,
     window: Query<&mut Window>,
     time: Res<Time>,
 ) {
-    for (paddle_location, player_type, mut paddle_transform) in paddle_query {
+    for (paddle, player_type, mut paddle_transform) in paddle_query {
         let mut direction = Vec3::new(0.0, 0.0, 0.0);
 
         let ball = BoundingCircle::new(
@@ -185,7 +184,7 @@ fn move_paddle(
 
         let fail_probability = rand::rng().random_range(0.0..10.0);
 
-        match (player_type, paddle_location) {
+        match (player_type, paddle.location) {
             (PlayerType::Human, PaddleLocation::Bottom) => {
                 if keyboard_input.pressed(KeyCode::ArrowLeft) {
                     direction -= Vec3::new(1.0, 0.0, 0.0);
@@ -266,10 +265,10 @@ fn handle_lose_life(
     mut commands: Commands,
     mut messages: MessageReader<LoseLife>,
     mut eliminated: MessageWriter<PaddleEliminated>,
-    mut paddles: Query<(Entity, &PaddleLocation, &mut Lives)>,
-    ball: Single<(Entity, &mut Transform, &mut Velocity), With<Ball>>,
+    mut paddles: Query<(Entity, &Paddle, &mut Lives)>,
+    ball: Single<(Entity, &mut Ball, &mut Transform, &mut Velocity), With<Ball>>,
 ) {
-    let (ball_entity, mut ball_transform, mut ball_velocity) = ball.into_inner();
+    let (ball_entity, mut ball, mut ball_transform, mut ball_velocity) = ball.into_inner();
     let mut point_already_scored = false;
 
     for LoseLife(location) in messages.read() {
@@ -277,17 +276,18 @@ fn handle_lose_life(
         if point_already_scored {
             continue;
         }
-        for (paddle, paddle_location, mut lives) in &mut paddles {
-            if *paddle_location == *location && lives.0 > 0 {
+        for (paddle_entity, paddle, mut lives) in &mut paddles {
+            if paddle.location == *location && lives.0 > 0 {
                 lives.0 -= 1;
 
                 if lives.0 == 0 {
-                    commands.entity(paddle).despawn();
-                    eliminated.write(PaddleEliminated(*paddle_location));
+                    commands.entity(paddle_entity).despawn();
+                    eliminated.write(PaddleEliminated(paddle.location));
                 }
 
                 ball_transform.translation = BALL_STARTING_POSITION;
                 ball_velocity.0 = Vec2::ZERO;
+                ball.last_hit_by = None;
 
                 commands.entity(ball_entity).insert(ServePause::new());
                 point_already_scored = true;
