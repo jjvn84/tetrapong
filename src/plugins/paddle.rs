@@ -11,7 +11,7 @@ use rand::RngExt;
 const PADDLE_WIDTH: f32 = 16.0; // As a percentage of the window's minimum dimension
 const PADDLE_HEIGHT: f32 = 2.0; // As a percentage of the window's minimum dimension
 pub const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the window's minimum dimension
-const PADDLE_SPEED: f32 = 500.0;
+const PADDLE_SPEED: f32 = 64.0;
 // How close can the paddle get to the wall
 
 const PADDLE_COLOR: Color = Color::srgb(0.3, 0.3, 0.7);
@@ -33,6 +33,7 @@ impl Plugin for PaddlePlugin {
 pub struct Paddle {
     pub location: PaddleLocation,
     pub width_multiplier: f32,
+    pub speed_multiplier: f32,
 }
 
 impl Paddle {
@@ -44,6 +45,7 @@ impl Paddle {
         let paddle = Paddle {
             location,
             width_multiplier: 1.0,
+            speed_multiplier: 1.0,
         };
         (
             Sprite::from_color(PADDLE_COLOR, Vec2::ONE),
@@ -114,12 +116,10 @@ pub struct LoseLife(pub PaddleLocation);
 pub struct PaddleEliminated(pub PaddleLocation);
 
 fn setup(mut commands: Commands, window: Query<&mut Window>) {
-    let min_window_dimension = window
-        .single()
-        .unwrap()
-        .resolution
-        .width()
-        .min(window.single().unwrap().resolution.height());
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let min_window_dimension = window.width().min(window.height());
 
     commands.spawn(Paddle::new(
         PaddleLocation::Left,
@@ -233,19 +233,18 @@ fn move_paddle(
             _ => direction += Vec3::new(0.0, 0.0, 0.0),
         }
 
+        let Ok(window) = window.single() else {
+            return;
+        };
+        let min_window_dimension = window.width().min(window.height());
+
         // Calculate the new horizontal paddle position based on player input
-        let new_paddle_position =
-            paddle_transform.translation + direction * PADDLE_SPEED * time.delta_secs();
+        let new_paddle_position = paddle_transform.translation
+            + direction * paddle.speed_multiplier * PADDLE_SPEED * min_window_dimension / 100.0
+                * time.delta_secs();
 
         // Update the paddle position,
         // making sure it doesn't cause the paddle to leave the arena
-
-        let min_window_dimension = window
-            .single()
-            .unwrap()
-            .resolution
-            .width()
-            .min(window.single().unwrap().resolution.height());
 
         let left_bound =
             -min_window_dimension / 2.0 + paddle_transform.scale.x / 2.0 + WALL_THICKNESS;

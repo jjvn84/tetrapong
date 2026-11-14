@@ -84,12 +84,10 @@ impl WallLocation {
 }
 
 fn setup(mut commands: Commands, window: Query<&mut Window>) {
-    let min_window_dimension = window
-        .single()
-        .unwrap()
-        .resolution
-        .width()
-        .min(window.single().unwrap().resolution.height());
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let min_window_dimension = window.width().min(window.height());
 
     // Walls
     commands.spawn(Wall::new(WallLocation::Left, min_window_dimension));

@@ -1,8 +1,11 @@
 use crate::plugins::{
+    ball::Ball,
     paddle::GAP_BETWEEN_PADDLE_AND_FLOOR,
+    paddle::Lives,
     paddle::Paddle,
+    paddle::PaddleEliminated,
     paddle::PaddleLocation,
-    physics::{Collider, ColliderType},
+    physics::{Collider, ColliderType, Velocity},
 };
 use bevy::prelude::*;
 use rand::RngExt;
@@ -29,7 +32,6 @@ struct SpawnTimer(Timer);
 
 #[derive(Component)]
 #[require(Collider(ColliderType::PowerUp))]
-
 pub struct PowerUp {
     pub kind: PowerUpKind,
 }
@@ -38,6 +40,12 @@ pub struct PowerUp {
 pub enum PowerUpKind {
     PaddleHalf,
     PaddleDouble,
+    PaddleSpeedHalf,
+    PaddleSpeedDouble,
+    BallSpeedHalf,
+    BallSpeedDouble,
+    LoseOneLife,
+    EarnOneLife,
 }
 
 #[derive(Message)]
@@ -101,38 +109,86 @@ fn spawn_power_up(
 }
 
 fn handle_powerup_hit(
+    mut commands: Commands,
     mut messages: MessageReader<PowerUpHit>,
-    mut paddles: Query<(&mut Paddle, &mut Transform)>,
+    mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives)>,
+    mut eliminated: MessageWriter<PaddleEliminated>,
+    ball: Single<(&mut Ball, &mut Velocity)>,
     window: Query<&Window>,
 ) {
     let Ok(window) = window.single() else {
         return;
     };
-    let min_window_dimension = window.resolution.width().min(window.resolution.height());
+    let min_window_dimension = window.width().min(window.height());
+    let (mut ball, mut ball_velocity) = ball.into_inner();
 
     for message in messages.read() {
-        // Messages are read-only, so look up the real paddle entity instead of
-        // trying to mutate the copy carried by the message.
-        let Some((mut paddle, mut paddle_transform)) = paddles
-            .iter_mut()
-            .find(|(paddle, _)| paddle.location == message.paddle)
-        else {
-            // The paddle may have been eliminated since the power-up spawned.
-            continue;
-        };
-
         match message.kind {
-            PowerUpKind::PaddleDouble => {
-                paddle.width_multiplier = (2.0 * paddle.width_multiplier).min(4.0);
+            PowerUpKind::BallSpeedDouble | PowerUpKind::BallSpeedHalf => {
+                let factor = match message.kind {
+                    PowerUpKind::BallSpeedDouble => 2.0,
+                    PowerUpKind::BallSpeedHalf => 0.5,
+                    _ => unreachable!(),
+                };
+
+                ball.multiply_speed(factor);
+
+                // Keep the current direction but apply the clamped speed now.
+                // During the serve pause the velocity is zero, so there is
+                // nothing to rescale; the next serve already uses the new speed.
+                if ball_velocity.0 != Vec2::ZERO {
+                    ball_velocity.0 =
+                        ball_velocity.0.normalize() * ball.speed(min_window_dimension);
+                }
             }
-            PowerUpKind::PaddleHalf => {
-                // Halve the width, but never go below a quarter of the original.
-                paddle.width_multiplier = (0.5 * paddle.width_multiplier).max(0.25);
+            kind @ (PowerUpKind::PaddleDouble
+            | PowerUpKind::PaddleHalf
+            | PowerUpKind::PaddleSpeedDouble
+            | PowerUpKind::PaddleSpeedHalf
+            | PowerUpKind::LoseOneLife
+            | PowerUpKind::EarnOneLife) => {
+                // Messages are read-only, so look up the real paddle entity
+                // instead of trying to mutate a copy carried by the message.
+                let Some((paddle_entity, mut paddle, mut paddle_transform, mut lives)) = paddles
+                    .iter_mut()
+                    .find(|(_, paddle, _, _)| paddle.location == message.paddle)
+                else {
+                    // The paddle may have been eliminated since the power-up spawned.
+                    continue;
+                };
+
+                match kind {
+                    PowerUpKind::PaddleDouble => {
+                        paddle.width_multiplier = (2.0 * paddle.width_multiplier).min(4.0);
+                    }
+                    PowerUpKind::PaddleHalf => {
+                        // Halve the width, but never go below a quarter of the original.
+                        paddle.width_multiplier = (0.5 * paddle.width_multiplier).max(0.25);
+                    }
+                    PowerUpKind::PaddleSpeedDouble => {
+                        paddle.speed_multiplier = (2.0 * paddle.speed_multiplier).min(4.0);
+                    }
+                    PowerUpKind::PaddleSpeedHalf => {
+                        paddle.speed_multiplier = (0.5 * paddle.speed_multiplier).max(0.25);
+                    }
+                    PowerUpKind::LoseOneLife => {
+                        lives.0 = lives.0.saturating_sub(1);
+
+                        if lives.0 == 0 {
+                            commands.entity(paddle_entity).despawn();
+                            eliminated.write(PaddleEliminated(paddle.location));
+                        }
+                    }
+                    PowerUpKind::EarnOneLife => {
+                        lives.0 = lives.0.saturating_add(1);
+                    }
+                    _ => unreachable!(),
+                }
+
+                // Apply the new size immediately; otherwise the sprite and its
+                // collision AABB keep the old size until the next window resize.
+                paddle_transform.scale = paddle.size(min_window_dimension);
             }
         }
-
-        // Apply the new width immediately; otherwise the sprite and its
-        // collision AABB keep the old size until the next window resize.
-        paddle_transform.scale = paddle.size(min_window_dimension);
     }
 }
