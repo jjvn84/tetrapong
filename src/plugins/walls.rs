@@ -111,23 +111,15 @@ fn setup(mut commands: Commands, window: Query<&mut Window>) {
 }
 
 fn on_window_resize(
-    mut walls_query: Query<&mut Transform, With<Wall>>,
+    mut walls_query: Query<(&mut Transform, &WallLocation), With<Wall>>,
     mut resize_reader: MessageReader<WindowResized>,
 ) {
     for window in resize_reader.read() {
         let min_window_dimension = window.width.min(window.height);
 
-        for (i, mut wall_transform) in walls_query.iter_mut().enumerate() {
-            let location = match i {
-                0 => WallLocation::Left,
-                1 => WallLocation::Right,
-                2 => WallLocation::Bottom,
-                3 => WallLocation::Top,
-                _ => unreachable!(),
-            };
-
-            wall_transform.translation = location.position(min_window_dimension).extend(0.0);
-            wall_transform.scale = location.size(min_window_dimension).extend(1.0);
+        for (mut wall_transform, wall_location) in &mut walls_query {
+            wall_transform.translation = wall_location.position(min_window_dimension).extend(0.0);
+            wall_transform.scale = wall_location.size(min_window_dimension).extend(1.0);
         }
     }
 }
