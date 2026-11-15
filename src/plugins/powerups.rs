@@ -157,12 +157,10 @@ fn spawn_power_up(
     timer.0.tick(time.delta());
 
     if timer.0.just_finished() {
-        let min_window_dimension = window
-            .single()
-            .unwrap()
-            .resolution
-            .width()
-            .min(window.single().unwrap().resolution.height());
+        let Ok(window) = window.single() else {
+            return;
+        };
+        let min_window_dimension = window.width().min(window.height());
 
         let powerup_x = rand::rng().random_range(
             -min_window_dimension / 2.0
@@ -177,8 +175,18 @@ fn spawn_power_up(
                     - 2.0 * GAP_BETWEEN_PADDLE_AND_FLOOR * min_window_dimension / 100.0,
         );
 
+        let active_powerups: Vec<_> = current_power_ups
+            .iter()
+            .map(|powerup| powerup.kind)
+            .collect();
+
+        let powerups_to_choose_from: Vec<_> = PowerUpKind::VARIANTS
+            .into_iter()
+            .filter(|powerup_kind| !active_powerups.contains(powerup_kind))
+            .collect();
+
         let mut rng = rand::rng();
-        let powerup_kind = *PowerUpKind::VARIANTS.choose(&mut rng).unwrap();
+        let powerup_kind = **powerups_to_choose_from.choose(&mut rng).unwrap();
 
         let size = POWERUP_SIZE * min_window_dimension / 100.0;
 
