@@ -7,16 +7,19 @@ use core::f32::consts::PI;
 
 const MAX_BOUNCE_ANGLE: f32 = PI / 3.0; // 60 degrees
 
+// The ball moves in substeps so a fast ball can't skip the thin arena walls
+// between two collision checks (tunneling). Each substep advances it by at
+// most a fraction of its radius, and a long frame (window drag, breakpoint,
+// alt-tab) is capped so it can't teleport across the arena.
+const MAX_STEP_RADIUS_FRACTION: f32 = 0.5;
+const MAX_FRAME_DELTA: f32 = 0.1;
+const MAX_SUBSTEPS: u32 = 128;
+
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (apply_velocity, check_for_collisions)
-                // `chain`ing systems together runs them in order
-                .chain(),
-        );
+        app.add_systems(Update, move_ball);
     }
 }
 
@@ -38,48 +41,16 @@ impl Default for ColliderType {
     }
 }
 
-fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
-    for (mut transform, velocity) in &mut query {
-        transform.translation.x += velocity.x * time.delta_secs();
-        transform.translation.y += velocity.y * time.delta_secs();
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum Collision {
-    Left,
-    Right,
-    Top,
-    Bottom,
-}
-
-// Returns `Some` if `ball` collides with `bounding_box`.
-// The returned `Collision` is the side of `bounding_box` that `ball` hit.
-fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collision> {
-    if !ball.intersects(&bounding_box) {
-        return None;
-    }
-
-    let closest = bounding_box.closest_point(ball.center());
-    let offset = ball.center() - closest;
-    let side = if offset.x.abs() > offset.y.abs() {
-        if offset.x < 0. {
-            Collision::Left
-        } else {
-            Collision::Right
-        }
-    } else if offset.y > 0. {
-        Collision::Top
-    } else {
-        Collision::Bottom
-    };
-
-    Some(side)
-}
-
-fn check_for_collisions(
+/// Moves the ball for this frame and resolves collisions after every substep.
+///
+/// Checking collisions only once, after the whole frame's movement, lets a
+/// fast ball pass completely through a wall between two frames. Substepping
+/// keeps each movement slice smaller than the ball, so the ball always
+/// overlaps whatever it crosses.
+fn move_ball(
     mut commands: Commands,
-    ball_query: Single<(&mut Ball, &mut Velocity, &Transform), With<Ball>>,
+    time: Res<Time>,
+    ball_query: Single<(&mut Ball, &mut Velocity, &mut Transform), With<Ball>>,
     collider_query: Query<
         (
             Entity,
@@ -89,30 +60,59 @@ fn check_for_collisions(
             Option<&Paddle>,
             Option<&PowerUp>,
         ),
-        With<Collider>,
+        (With<Collider>, Without<Ball>),
     >,
     mut lose_life: MessageWriter<LoseLife>,
     mut powerup_hit: MessageWriter<PowerUpHit>,
 ) {
-    let (mut ball, mut ball_velocity, ball_transform) = ball_query.into_inner();
+    let (mut ball, mut ball_velocity, mut ball_transform) = ball_query.into_inner();
 
-    for (collider_entity, collider, collider_transform, wall_location, paddle, power_up) in
-        &collider_query
-    {
-        let collision = ball_collision(
-            BoundingCircle::new(
-                ball_transform.translation.truncate(),
-                ball_transform.scale.x / 2.,
-            ),
-            Aabb2d::new(
-                collider_transform.translation.truncate(),
-                collider_transform.scale.truncate() / 2.,
-            ),
-        );
+    let delta = time.delta_secs().min(MAX_FRAME_DELTA);
+    let speed = ball_velocity.length();
+    if speed <= f32::EPSILON || delta <= f32::EPSILON {
+        return;
+    }
 
-        if let Some(collision) = collision {
+    let radius = ball_transform.scale.x / 2.0;
+    let substeps = substep_count(speed, delta, radius);
+    let substep_delta = delta / substeps as f32;
+
+    // Collected power-ups are despawned with deferred commands, so the query
+    // still returns them for the rest of this frame.
+    let mut collected = Vec::new();
+
+    for _ in 0..substeps {
+        ball_transform.translation.x += ball_velocity.x * substep_delta;
+        ball_transform.translation.y += ball_velocity.y * substep_delta;
+
+        let mut hit_wall = false;
+
+        for (collider_entity, collider, collider_transform, wall_location, paddle, power_up) in
+            &collider_query
+        {
+            if collected.contains(&collider_entity) {
+                continue;
+            }
+
+            let collision = ball_collision(
+                BoundingCircle::new(
+                    ball_transform.translation.truncate(),
+                    ball_transform.scale.x / 2.,
+                ),
+                Aabb2d::new(
+                    collider_transform.translation.truncate(),
+                    collider_transform.scale.truncate() / 2.,
+                ),
+            );
+
+            let Some(collision) = collision else {
+                continue;
+            };
+
             match collider.0 {
                 ColliderType::Wall => {
+                    hit_wall = true;
+
                     if let Some(wall_location) = wall_location {
                         lose_life.write(LoseLife(wall_location.owner()));
                     }
@@ -182,10 +182,85 @@ fn check_for_collisions(
                             kind: power_up.kind,
                             paddle: last_hit_by,
                         });
+                        collected.push(collider_entity);
                         commands.entity(collider_entity).despawn();
                     }
                 }
             }
         }
+
+        // A wall hit scores a point, and the ball is reset later this frame,
+        // so there is nothing left to simulate.
+        if hit_wall {
+            break;
+        }
+    }
+}
+
+/// Number of substeps needed so the ball never moves more than a fraction of
+/// its radius between collision checks.
+fn substep_count(speed: f32, delta: f32, radius: f32) -> u32 {
+    let max_step = (radius * MAX_STEP_RADIUS_FRACTION).max(0.5);
+    ((speed * delta / max_step).ceil() as u32).clamp(1, MAX_SUBSTEPS)
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum Collision {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+// Returns `Some` if `ball` collides with `bounding_box`.
+// The returned `Collision` is the side of `bounding_box` that `ball` hit.
+fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collision> {
+    if !ball.intersects(&bounding_box) {
+        return None;
+    }
+
+    let closest = bounding_box.closest_point(ball.center());
+    let offset = ball.center() - closest;
+    let side = if offset.x.abs() > offset.y.abs() {
+        if offset.x < 0. {
+            Collision::Left
+        } else {
+            Collision::Right
+        }
+    } else if offset.y > 0. {
+        Collision::Top
+    } else {
+        Collision::Bottom
+    };
+
+    Some(side)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fast_ball_moves_less_than_half_its_radius_per_substep() {
+        // Worst case for the current rules: 4x speed on a 1080p window, after
+        // a frame long enough to hit the delta cap.
+        let radius = 16.2;
+        let speed = 2160.0;
+        let delta = MAX_FRAME_DELTA;
+
+        let steps = substep_count(speed, delta, radius);
+
+        assert!(steps > 1);
+        assert!(speed * delta / steps as f32 <= radius * MAX_STEP_RADIUS_FRACTION + 1e-3);
+    }
+
+    #[test]
+    fn slow_ball_uses_a_single_substep() {
+        assert_eq!(substep_count(10.0, 1.0 / 60.0, 12.0), 1);
+    }
+
+    #[test]
+    fn substep_count_is_always_at_least_one() {
+        assert_eq!(substep_count(0.0, 0.0, 0.0), 1);
     }
 }

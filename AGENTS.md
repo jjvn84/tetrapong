@@ -49,9 +49,10 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
 - `paddle.rs` — spawns the four paddles, defines `PaddleLocation`, `PlayerType`, `Lives`,
   `LoseLife`, and `PaddleEliminated`; handles human input, computer movement, life loss,
   and despawning eliminated paddles.
-- `physics.rs` — `Velocity`, `Collider`/`ColliderType`, `apply_velocity`, and
-  `check_for_collisions` (AABB vs. bounding circle reflection). Emits `LoseLife` when the
-  ball hits a wall and `PowerUpHit` when it touches a power-up.
+- `physics.rs` — `Velocity`, `Collider`/`ColliderType`, and `move_ball`, which
+  integrates the ball in distance-bounded substeps and resolves AABB vs. bounding circle
+  collisions. Emits `LoseLife` when the ball hits a wall and `PowerUpHit` when it touches a
+  power-up.
 - `walls.rs` — spawns the four arena walls, each carrying a `WallLocation` component, and
   keeps them aligned on resize. `WallLocation::owner` maps a wall to its `PaddleLocation`.
 - `hud.rs` — spawns and updates the per-side lives panels, including the 0 state when a
@@ -89,6 +90,10 @@ camera and shared constants such as `STARTING_LIVES`.
   to 0; don't couple the HUD back to the paddle entity.
 - **One point per frame.** A corner hit can emit multiple `LoseLife` messages in one frame;
   `handle_lose_life` guards with `point_already_scored`.
+- **Substepped ball movement.** `physics.rs::move_ball` splits each frame into substeps so
+  the ball never travels more than half its radius between collision checks, and caps the
+  frame delta. Don't go back to a single move-then-check: fast balls (stacked ball-speed
+  power-ups) tunnel through the thin walls when the frame rate drops.
 - **Colours come from `theme.rs`.** Don't hard-code `Color::srgb` values in plugins; add a
   constant (or helper such as `theme::paddle_color`) instead. Per-side identity is carried by
   paddle colour; walls and the arena stay uniform.
