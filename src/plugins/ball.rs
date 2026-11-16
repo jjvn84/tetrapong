@@ -22,7 +22,7 @@ impl Plugin for BallPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Copy, Clone)]
 pub struct Ball {
     pub last_hit_by: Option<PaddleLocation>,
     pub speed_multiplier: f32,
@@ -39,6 +39,14 @@ impl Ball {
     /// Current speed in pixels per second for the given window size.
     pub fn speed(&self, min_window_dimension: f32) -> f32 {
         BALL_SPEED * self.speed_multiplier * min_window_dimension / 100.0
+    }
+
+    fn initial_ball_direction() -> Vec2 {
+        // Pick a quadrant (0..4) and a safe offset (15°..75°)
+        let quadrant = rand::random_range(0..4) as f32;
+        let offset = rand::random_range(15.0..75.0);
+        let angle_radians = (quadrant * 90.0 + offset).to_radians();
+        Vec2::from_angle(angle_radians)
     }
 }
 
@@ -63,19 +71,20 @@ fn setup(
     let min_window_dimension = window.width().min(window.height());
 
     // Ball
-    let initial_ball_angle = rand::random_range(0.0..360.0) as f32;
-    let initial_ball_direction = Vec2::new(initial_ball_angle.cos(), initial_ball_angle.sin());
+    let ball_struct = Ball {
+        last_hit_by: None,
+        speed_multiplier: 1.0,
+    };
 
     commands.spawn((
         Mesh2d(meshes.add(Circle::default())),
         MeshMaterial2d(materials.add(theme::BALL)),
         Transform::from_translation(BALL_STARTING_POSITION)
             .with_scale(Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.)),
-        Ball {
-            last_hit_by: None,
-            speed_multiplier: 1.0,
-        },
-        Velocity(initial_ball_direction.normalize() * BALL_SPEED * min_window_dimension / 100.0),
+        ball_struct.clone(),
+        Velocity(
+            Ball::initial_ball_direction().normalize() * ball_struct.speed(min_window_dimension),
+        ),
     ));
 }
 
@@ -91,9 +100,8 @@ fn on_window_resize(
 
         ball_transform.scale = Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.);
 
-        let initial_ball_angle = rand::random_range(0.0..360.0) as f32;
-        let initial_ball_direction = Vec2::new(initial_ball_angle.cos(), initial_ball_angle.sin());
-        ball_velocity.0 = initial_ball_direction.normalize() * ball.speed(min_window_dimension);
+        ball_velocity.0 =
+            Ball::initial_ball_direction().normalize() * ball.speed(min_window_dimension);
     }
 }
 
@@ -112,9 +120,8 @@ fn tick_serve_pause(
         pause.0.tick(time.delta());
 
         if pause.0.just_finished() {
-            let ball_angle = rand::random_range(0.0..360.0) as f32;
-            let ball_direction = Vec2::new(ball_angle.cos(), ball_angle.sin());
-            velocity.0 = ball_direction.normalize() * ball.speed(min_window_dimension);
+            velocity.0 =
+                Ball::initial_ball_direction().normalize() * ball.speed(min_window_dimension);
             commands.entity(entity).remove::<ServePause>();
         }
     }
