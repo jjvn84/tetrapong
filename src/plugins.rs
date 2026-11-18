@@ -1,4 +1,5 @@
 pub mod ball;
+pub mod game;
 pub mod hud;
 pub mod paddle;
 pub mod physics;

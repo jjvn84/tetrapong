@@ -1,5 +1,6 @@
 use crate::{
     STARTING_LIVES,
+    game_state::GameState,
     plugins::{
         ball::BALL_STARTING_POSITION, ball::Ball, ball::ServePause, physics::Collider,
         physics::ColliderType, physics::Velocity, walls::WALL_THICKNESS,
@@ -15,15 +16,17 @@ pub const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the win
 const PADDLE_SPEED: f32 = 64.0;
 // How close can the paddle get to the wall
 
+#[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
+pub struct PaddleSet;
 pub struct PaddlePlugin;
 
 impl Plugin for PaddlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
+        app.add_systems(OnEnter(GameState::Game), setup);
         app.add_systems(Update, on_window_resize);
-        app.add_systems(Update, move_paddle);
+        app.add_systems(Update, move_paddle.in_set(PaddleSet));
         app.add_message::<LoseLife>();
-        app.add_systems(Update, handle_lose_life);
+        app.add_systems(Update, handle_lose_life.in_set(PaddleSet));
         app.add_message::<PaddleEliminated>();
     }
 }
@@ -41,7 +44,15 @@ impl Paddle {
         location: PaddleLocation,
         player_type: PlayerType,
         min_window_dimension: f32,
-    ) -> (Sprite, Transform, Paddle, PlayerType, Lives, Collider) {
+    ) -> (
+        Sprite,
+        Transform,
+        Paddle,
+        PlayerType,
+        Lives,
+        Collider,
+        DespawnOnExit<GameState>,
+    ) {
         let paddle = Paddle {
             location,
             width_multiplier: 1.0,
@@ -58,6 +69,8 @@ impl Paddle {
             player_type,
             Lives(STARTING_LIVES),
             Collider(ColliderType::Paddle),
+            // Paddles belong to the round: they are rebuilt when a new round starts.
+            DespawnOnExit(GameState::Game),
         )
     }
 
@@ -97,9 +110,8 @@ pub enum PaddleLocation {
     Top,
 }
 
-#[derive(Component)]
-
-enum PlayerType {
+#[derive(Component, Eq, PartialEq, Clone, Copy)]
+pub enum PlayerType {
     Human,
     Computer,
 }

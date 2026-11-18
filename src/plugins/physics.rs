@@ -15,11 +15,13 @@ const MAX_STEP_RADIUS_FRACTION: f32 = 0.5;
 const MAX_FRAME_DELTA: f32 = 0.1;
 const MAX_SUBSTEPS: u32 = 128;
 
+#[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
+pub struct PhysicsSet;
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, move_ball);
+        app.add_systems(Update, move_ball.in_set(PhysicsSet));
     }
 }
 

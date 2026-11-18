@@ -1,3 +1,4 @@
+use crate::game_state::GameState;
 use crate::plugins::paddle::PaddleLocation;
 use crate::plugins::physics::Velocity;
 use crate::theme;
@@ -13,12 +14,16 @@ const MAX_SPEED_MULTIPLIER: f32 = 4.0;
 
 const SERVE_PAUSE_SECONDS: f32 = 2.0;
 
+#[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
+pub struct BallSet;
+
 pub struct BallPlugin;
 
 impl Plugin for BallPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
-        app.add_systems(Update, (on_window_resize, tick_serve_pause));
+        app.add_systems(OnEnter(GameState::Game), setup);
+        app.add_systems(Update, on_window_resize);
+        app.add_systems(Update, tick_serve_pause.in_set(BallSet));
     }
 }
 
@@ -81,10 +86,12 @@ fn setup(
         MeshMaterial2d(materials.add(theme::BALL)),
         Transform::from_translation(BALL_STARTING_POSITION)
             .with_scale(Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.)),
-        ball_struct.clone(),
+        ball_struct,
         Velocity(
             Ball::initial_ball_direction().normalize() * ball_struct.speed(min_window_dimension),
         ),
+        // The ball belongs to the round: it is rebuilt when a new round starts.
+        DespawnOnExit(GameState::Game),
     ));
 }
 

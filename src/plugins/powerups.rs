@@ -1,3 +1,4 @@
+use crate::game_state::GameState;
 use crate::plugins::{
     ball::Ball,
     paddle::GAP_BETWEEN_PADDLE_AND_FLOOR,
@@ -20,6 +21,9 @@ const MAXIMUM_NUMBER_OF_ACTIVE_POWERUPS: usize = 4;
 
 const TIME_BETWEEN_POWERUPS: f32 = 2.0;
 
+#[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
+pub struct PowerUpsSet;
+
 pub struct PowerUpsPlugin;
 
 impl Plugin for PowerUpsPlugin {
@@ -29,7 +33,11 @@ impl Plugin for PowerUpsPlugin {
             TimerMode::Repeating,
         )));
         app.add_systems(Startup, setup_power_up_assets);
-        app.add_systems(Update, (spawn_power_up, handle_powerup_hit));
+        app.add_systems(OnEnter(GameState::Game), reset_spawn_timer);
+        app.add_systems(
+            Update,
+            (spawn_power_up, handle_powerup_hit).in_set(PowerUpsSet),
+        );
         app.add_message::<PowerUpHit>();
     }
 }
@@ -142,6 +150,12 @@ fn glyph_mesh(kind: PowerUpKind, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
     }
 }
 
+/// Restarts the spawn clock so every round begins with a full interval before the
+/// first power-up appears.
+fn reset_spawn_timer(mut timer: ResMut<SpawnTimer>) {
+    timer.0.reset();
+}
+
 fn spawn_power_up(
     time: Res<Time>,
     mut timer: ResMut<SpawnTimer>,
@@ -223,6 +237,8 @@ fn spawn_power_up_at(
             Visibility::default(),
             Collider(ColliderType::PowerUp),
             PowerUp { kind },
+            // Badges belong to the round: the next round starts without leftovers.
+            DespawnOnExit(GameState::Game),
         ))
         .with_children(|parent| {
             // Dark badge to separate the power-up from the arena.

@@ -9,6 +9,9 @@ pub const BALL: Color = Color::srgb_u8(255, 247, 230); // #FFF7E6
 pub const WALL: Color = Color::srgb_u8(71, 85, 105); // #475569
 
 pub const HUD_PANEL: Color = Color::srgba_u8(30, 41, 59, 230); // #1E293B at ~90%
+pub const TEXT_MUTED: Color = Color::srgb_u8(148, 163, 184); // #94A3B8
+
+pub const OVERLAY: Color = Color::srgba_u8(11, 16, 32, 235); // BACKGROUND at ~92%
 
 pub const PADDLE_LEFT: Color = Color::srgb_u8(56, 189, 248); // #38BDF8
 pub const PADDLE_RIGHT: Color = Color::srgb_u8(244, 114, 182); // #F472B6

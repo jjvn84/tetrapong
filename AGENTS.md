@@ -7,8 +7,8 @@ Guidance for AI coding agents working in this repository.
 `tetrapong` is a **work-in-progress** four-paddle Pong clone written in Rust with Bevy
 0.20. There are four paddles (left, right, top, bottom), one per wall of a square arena.
 The bottom paddle is human-controlled; the others use simple AI. The project is an early
-prototype: movement, collisions, scoring, the serve delay, and paddle elimination work, but
-there is no game-over/win condition yet.
+prototype: movement, collisions, scoring, the serve delay, paddle elimination, and the
+game-over/restart flow work, but the game is far from finished.
 
 Do not assume the game is feature-complete. Check the "Status" section of `README.md`
 before implementing or "fixing" gameplay behaviour.
@@ -34,7 +34,7 @@ Common commands:
 | Run               | `cargo run`                          |
 | Format            | `cargo fmt`                          |
 | Lint              | `cargo clippy --all-targets`         |
-| Tests             | `cargo test` (no tests exist yet)    |
+| Tests             | `cargo test`                         |
 
 Run `cargo fmt` and `cargo clippy` before finishing changes. Do not commit `target/` or
 `.direnv/`; they are gitignored.
@@ -44,11 +44,15 @@ Run `cargo fmt` and `cargo clippy` before finishing changes. Do not commit `targ
 The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
 `src/plugins/`:
 
-- `ball.rs` — spawns the ball, sets its size from the window, resets it on resize, and
-  owns `ServePause` (the 2-second timer that relaunches the ball after a point).
-- `paddle.rs` — spawns the four paddles, defines `PaddleLocation`, `PlayerType`, `Lives`,
-  `LoseLife`, and `PaddleEliminated`; handles human input, computer movement, life loss,
-  and despawning eliminated paddles.
+- `game.rs` — `GamePlugin`, which owns the app-level wiring: it adds `DefaultPlugins`, the
+  camera, every sub-plugin, `GameState`, the state gating, game-over detection, and the
+  result screen.
+- `ball.rs` — spawns the ball at the start of each round, sets its size from the window,
+  resets it on resize, and owns `ServePause` (the 2-second timer that relaunches the ball
+  after a point).
+- `paddle.rs` — spawns the four paddles at the start of each round, defines
+  `PaddleLocation`, `PlayerType`, `Lives`, `LoseLife`, and `PaddleEliminated`; handles
+  human input, computer movement, life loss, and despawning eliminated paddles.
 - `physics.rs` — `Velocity`, `Collider`/`ColliderType`, and `move_ball`, which
   integrates the ball in distance-bounded substeps and resolves AABB vs. bounding circle
   collisions. Emits `LoseLife` when the ball hits a wall and `PowerUpHit` when it touches a
@@ -60,11 +64,31 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
 - `powerups.rs` — `PowerUpKind`, spawning of collectible badges at random positions, their
   preloaded meshes/materials, and applying each effect to the paddle that last hit the ball.
 
-The palette lives in `src/theme.rs`; plugins import colours from it rather than defining
-their own constants.
+`src/game_state.rs` defines `GameState` (`Game` / `GameOver`); `src/theme.rs` holds the
+palette. Plugins import colours and the state from those modules rather than defining their
+own constants.
 
-Plugins are declared in `src/plugins.rs` and registered in `src/main.rs`, along with the
-camera and shared constants such as `STARTING_LIVES`.
+Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`.
+`src/main.rs` only adds `GamePlugin`; `STARTING_LIVES` lives there too.
+
+### Game states and round lifecycle
+
+- Each gameplay plugin declares a `SystemSet` (`BallSet`, `PaddleSet`, `PhysicsSet`,
+  `PowerUpsSet`) and tags its gameplay systems with `.in_set(..)`. `GamePlugin` applies
+  `run_if(in_state(GameState::Game))` to those sets once, so plugins never import the state
+  for gating.
+- Systems that must keep running in both states (all `on_window_resize` systems, the HUD,
+  the game-over screen and the restart input) are not put in those sets.
+- Round entities (ball, paddles, power-up badges) are spawned in `OnEnter(GameState::Game)`
+  and carry `DespawnOnExit(GameState::Game)`. Leaving `Game` clears the arena; re-entering
+  it rebuilds a fresh round, which is what `R` triggers. `OnEnter(Game)` also resets
+  `GameResult` and the power-up `SpawnTimer`.
+- Arena-level entities (camera, walls, HUD panels, `PowerUpAssets`) stay on `Startup` and
+  survive state changes.
+- `check_game_over` runs in `Update` after `PaddleSet`/`PowerUpsSet` and delegates the
+  decision to `decide_outcome`. The last paddle standing wins, whoever controls it; with
+  more than one survivor left, the round also ends as soon as every `PlayerType::Human`
+  paddle is gone (loss). The decision is unit-tested.
 
 ### Key conventions
 
@@ -126,8 +150,11 @@ This code targets Bevy 0.20, which differs from older examples online:
 
 ## Known gaps and gotchas
 
-- **No game over.** Paddles are despawned at 0 lives, but the game continues indefinitely.
-  Winner detection and restart are the main missing pieces.
+- **Game over is decided by number of players, not by side.** `game.rs::decide_outcome`
+  awards the win to the last paddle standing, whatever `PlayerType` it has. With two or more
+  survivors, the round ends as soon as every `PlayerType::Human` paddle is gone. If you add
+  more human players, keep the "all humans eliminated" check rather than checking a
+  hard-coded side.
 - **Eliminated sides still score.** Their wall keeps emitting `LoseLife`, but no paddle
   matches, so nothing is decremented or reset and the ball bounces off that wall. Decide
   the intended rule before changing this.
@@ -144,10 +171,10 @@ This code targets Bevy 0.20, which differs from older examples online:
   the paddle is spawned as `PlayerType::Computer`.
 - **AI is intentionally imperfect.** Computer paddles skip movement randomly
   (`fail_probability`), and this is deliberate. Don't "fix" it without being asked.
-- **No tests.** `cargo test` passes trivially. `.github/workflows/build.yml` packages
-  release builds for Linux and Windows and publishes them on `v*` tags, but there are no
-  automated tests yet. If you add logic that is hard to verify by running the game,
-  consider adding unit tests.
+- **Few tests.** `.github/workflows/build.yml` packages release builds for Linux and Windows
+  and publishes them on `v*` tags. The only unit tests cover ball substepping
+  (`physics.rs`) and the game-over rule (`game.rs::decide_outcome`). If you add logic that
+  is hard to verify by running the game, consider adding unit tests.
 
 ## Working style
 
