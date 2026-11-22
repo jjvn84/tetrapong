@@ -1,7 +1,7 @@
 use crate::game_state::GameState;
 use crate::plugins::ball::Ball;
 use crate::plugins::paddle::{
-    GAP_BETWEEN_PADDLE_AND_FLOOR, Lives, Paddle, PaddleEliminated, PaddleLocation,
+    GAP_BETWEEN_PADDLE_AND_FLOOR, Lives, LoseLife, Paddle, PaddleLocation,
 };
 use crate::plugins::physics::{Collider, ColliderType, Velocity};
 use crate::theme;
@@ -258,10 +258,10 @@ fn spawn_power_up_at(
 }
 
 fn handle_power_up_hit(
-    mut commands: Commands,
     mut messages: MessageReader<PowerUpHit>,
-    mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives)>,
-    mut eliminated: MessageWriter<PaddleEliminated>,
+    mut paddles: Query<(&mut Paddle, &mut Transform, &mut Lives)>,
+    mut lose_life: MessageWriter<LoseLife>,
+
     ball: Single<(&mut Ball, &mut Velocity)>,
     window: Query<&Window>,
 ) {
@@ -299,9 +299,9 @@ fn handle_power_up_hit(
             | PowerUpKind::EarnOneLife) => {
                 // Messages are read-only, so look up the real paddle entity
                 // instead of trying to mutate a copy carried by the message.
-                let Some((paddle_entity, mut paddle, mut paddle_transform, mut lives)) = paddles
+                let Some((mut paddle, mut paddle_transform, mut lives)) = paddles
                     .iter_mut()
-                    .find(|(_, paddle, _, _)| paddle.location == message.paddle)
+                    .find(|(paddle, _, _)| paddle.location == message.paddle)
                 else {
                     // The paddle may have been eliminated since the power-up spawned.
                     continue;
@@ -322,12 +322,10 @@ fn handle_power_up_hit(
                         paddle.speed_multiplier = (0.5 * paddle.speed_multiplier).max(0.25);
                     }
                     PowerUpKind::LoseOneLife => {
-                        lives.0 = lives.0.saturating_sub(1);
-
-                        if lives.0 == 0 {
-                            commands.entity(paddle_entity).despawn();
-                            eliminated.write(PaddleEliminated(paddle.location));
-                        }
+                        lose_life.write(LoseLife {
+                            paddle_location: paddle.location,
+                            from_wall_hit: false,
+                        });
                     }
                     PowerUpKind::EarnOneLife => {
                         lives.0 = lives.0.saturating_add(1);

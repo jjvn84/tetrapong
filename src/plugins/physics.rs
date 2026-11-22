@@ -127,7 +127,10 @@ fn move_ball(
                     hit_wall = true;
 
                     if let Some(wall_location) = wall_location {
-                        lose_life.write(LoseLife(wall_location.owner()));
+                        lose_life.write(LoseLife {
+                            paddle_location: wall_location.owner(),
+                            from_wall_hit: true,
+                        });
                     }
 
                     // Reflect the ball's velocity when it collides

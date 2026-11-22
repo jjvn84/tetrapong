@@ -116,7 +116,10 @@ pub enum PlayerType {
 pub struct Lives(pub u32);
 
 #[derive(Message)]
-pub struct LoseLife(pub PaddleLocation);
+pub struct LoseLife {
+    pub paddle_location: PaddleLocation,
+    pub from_wall_hit: bool,
+}
 
 #[derive(Message)]
 pub struct PaddleEliminated(pub PaddleLocation);
@@ -298,7 +301,11 @@ fn handle_lose_life(
     let (ball_entity, mut ball, mut ball_transform, mut ball_velocity) = ball.into_inner();
     let mut point_already_scored = false;
 
-    for LoseLife(location) in messages.read() {
+    for LoseLife {
+        paddle_location: location,
+        from_wall_hit,
+    } in messages.read()
+    {
         // Avoid scoring losing more than one life in the same frame, in case of multiple collisions
         if point_already_scored {
             continue;
@@ -321,14 +328,15 @@ fn handle_lose_life(
                 paddle.width_multiplier = 1.0;
                 paddle_transform.scale = paddle.size(min_window_dimension);
                 paddle.speed_multiplier = 1.0;
+                if *from_wall_hit {
+                    // Reset ball
+                    ball_transform.translation = BALL_STARTING_POSITION;
+                    ball_velocity.0 = Vec2::ZERO;
+                    ball.last_hit_by = None;
+                    ball.speed_multiplier = 1.0;
 
-                // Reset ball
-                ball_transform.translation = BALL_STARTING_POSITION;
-                ball_velocity.0 = Vec2::ZERO;
-                ball.last_hit_by = None;
-                ball.speed_multiplier = 1.0;
-
-                commands.entity(ball_entity).insert(ServePause::new());
+                    commands.entity(ball_entity).insert(ServePause::new());
+                }
                 point_already_scored = true;
             }
         }
