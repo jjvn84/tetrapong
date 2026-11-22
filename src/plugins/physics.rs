@@ -17,6 +17,7 @@ const MAX_SUBSTEPS: u32 = 128;
 
 #[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
 pub struct PhysicsSet;
+
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
@@ -43,6 +44,14 @@ impl Default for ColliderType {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum Collision {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
 /// Moves the ball for this frame and resolves collisions after every substep.
 ///
 /// Checking collisions only once, after the whole frame's movement, lets a
@@ -65,7 +74,7 @@ fn move_ball(
         (With<Collider>, Without<Ball>),
     >,
     mut lose_life: MessageWriter<LoseLife>,
-    mut powerup_hit: MessageWriter<PowerUpHit>,
+    mut power_up_hit: MessageWriter<PowerUpHit>,
 ) {
     let (mut ball, mut ball_velocity, mut ball_transform) = ball_query.into_inner();
 
@@ -92,6 +101,7 @@ fn move_ball(
         for (collider_entity, collider, collider_transform, wall_location, paddle, power_up) in
             &collider_query
         {
+            // Skip if player already collected this power up
             if collected.contains(&collider_entity) {
                 continue;
             }
@@ -107,6 +117,7 @@ fn move_ball(
                 ),
             );
 
+            // Skip if there is no collision with a Collider
             let Some(collision) = collision else {
                 continue;
             };
@@ -118,6 +129,7 @@ fn move_ball(
                     if let Some(wall_location) = wall_location {
                         lose_life.write(LoseLife(wall_location.owner()));
                     }
+
                     // Reflect the ball's velocity when it collides
                     let mut reflect_x = false;
                     let mut reflect_y = false;
@@ -180,7 +192,7 @@ fn move_ball(
                 }
                 ColliderType::PowerUp => {
                     if let (Some(last_hit_by), Some(power_up)) = (ball.last_hit_by, power_up) {
-                        powerup_hit.write(PowerUpHit {
+                        power_up_hit.write(PowerUpHit {
                             kind: power_up.kind,
                             paddle: last_hit_by,
                         });
@@ -204,14 +216,6 @@ fn move_ball(
 fn substep_count(speed: f32, delta: f32, radius: f32) -> u32 {
     let max_step = (radius * MAX_STEP_RADIUS_FRACTION).max(0.5);
     ((speed * delta / max_step).ceil() as u32).clamp(1, MAX_SUBSTEPS)
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum Collision {
-    Left,
-    Right,
-    Top,
-    Bottom,
 }
 
 // Returns `Some` if `ball` collides with `bounding_box`.

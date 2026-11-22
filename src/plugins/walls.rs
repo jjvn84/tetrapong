@@ -1,4 +1,5 @@
-use crate::plugins::{paddle::PaddleLocation, physics::Collider, physics::ColliderType};
+use crate::plugins::paddle::PaddleLocation;
+use crate::plugins::physics::{Collider, ColliderType};
 use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 

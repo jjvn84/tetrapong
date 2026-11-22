@@ -1,12 +1,9 @@
-use crate::{
-    STARTING_LIVES,
-    game_state::GameState,
-    plugins::{
-        ball::BALL_STARTING_POSITION, ball::Ball, ball::ServePause, physics::Collider,
-        physics::ColliderType, physics::Velocity, walls::WALL_THICKNESS,
-    },
-    theme,
-};
+use crate::STARTING_LIVES;
+use crate::game_state::GameState;
+use crate::plugins::ball::{BALL_STARTING_POSITION, Ball, ServePause};
+use crate::plugins::physics::{Collider, ColliderType, Velocity};
+use crate::plugins::walls::WALL_THICKNESS;
+use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 use rand::RngExt;
 
@@ -14,10 +11,10 @@ const PADDLE_WIDTH: f32 = 16.0; // As a percentage of the window's minimum dimen
 const PADDLE_HEIGHT: f32 = 2.0; // As a percentage of the window's minimum dimension
 pub const GAP_BETWEEN_PADDLE_AND_FLOOR: f32 = 4.0; // As a percentage of the window's minimum dimension
 const PADDLE_SPEED: f32 = 64.0;
-// How close can the paddle get to the wall
 
 #[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
 pub struct PaddleSet;
+
 pub struct PaddlePlugin;
 
 impl Plugin for PaddlePlugin {
@@ -25,8 +22,8 @@ impl Plugin for PaddlePlugin {
         app.add_systems(OnEnter(GameState::Game), setup);
         app.add_systems(Update, on_window_resize);
         app.add_systems(Update, move_paddle.in_set(PaddleSet));
-        app.add_message::<LoseLife>();
         app.add_systems(Update, handle_lose_life.in_set(PaddleSet));
+        app.add_message::<LoseLife>();
         app.add_message::<PaddleEliminated>();
     }
 }
@@ -75,14 +72,14 @@ impl Paddle {
     }
 
     fn position(&self, min_window_dimension: f32) -> Vec3 {
-        let paddle_distance = min_window_dimension / 2.0
+        let paddle_distance_from_center = min_window_dimension / 2.0
             - min_window_dimension * GAP_BETWEEN_PADDLE_AND_FLOOR / 100.0;
 
         match &self.location {
-            PaddleLocation::Left => Vec3::new(-paddle_distance, 0.0, 0.0),
-            PaddleLocation::Right => Vec3::new(paddle_distance, 0.0, 0.0),
-            PaddleLocation::Bottom => Vec3::new(0.0, -paddle_distance, 0.0),
-            PaddleLocation::Top => Vec3::new(0.0, paddle_distance, 0.0),
+            PaddleLocation::Left => Vec3::new(-paddle_distance_from_center, 0.0, 0.0),
+            PaddleLocation::Right => Vec3::new(paddle_distance_from_center, 0.0, 0.0),
+            PaddleLocation::Bottom => Vec3::new(0.0, -paddle_distance_from_center, 0.0),
+            PaddleLocation::Top => Vec3::new(0.0, paddle_distance_from_center, 0.0),
         }
     }
 
@@ -102,7 +99,6 @@ impl Paddle {
 }
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-
 pub enum PaddleLocation {
     Left,
     Right,

@@ -121,7 +121,7 @@ fn spawn_game_over_screen(mut commands: Commands, result: Res<GameResult>) {
             format!("{location:?} paddle wins!"),
             theme::paddle_color(*location),
         ),
-        GameResultVariant::HumansEliminated => ("Humans eliminated".to_string(), theme::BALL),
+        GameResultVariant::HumansEliminated => ("Game Over".to_string(), theme::BALL),
         GameResultVariant::InProgress => return,
     };
 
@@ -149,6 +149,16 @@ fn spawn_game_over_screen(mut commands: Commands, result: Res<GameResult>) {
                 },
                 TextColor(title_color),
             ));
+            if result.0 == GameResultVariant::HumansEliminated {
+                parent.spawn((
+                    Text::new("No human player remains"),
+                    TextFont {
+                        font_size: FontSize::Px(36.0),
+                        ..default()
+                    },
+                    TextColor(theme::TEXT_MUTED),
+                ));
+            }
             parent.spawn((
                 Text::new("Press R to play again"),
                 TextFont {

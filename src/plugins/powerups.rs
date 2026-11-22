@@ -1,13 +1,9 @@
 use crate::game_state::GameState;
-use crate::plugins::{
-    ball::Ball,
-    paddle::GAP_BETWEEN_PADDLE_AND_FLOOR,
-    paddle::Lives,
-    paddle::Paddle,
-    paddle::PaddleEliminated,
-    paddle::PaddleLocation,
-    physics::{Collider, ColliderType, Velocity},
+use crate::plugins::ball::Ball;
+use crate::plugins::paddle::{
+    GAP_BETWEEN_PADDLE_AND_FLOOR, Lives, Paddle, PaddleEliminated, PaddleLocation,
 };
+use crate::plugins::physics::{Collider, ColliderType, Velocity};
 use crate::theme;
 use bevy::prelude::*;
 use rand::RngExt;
@@ -15,11 +11,11 @@ use rand::seq::IndexedRandom;
 use std::collections::HashMap;
 use strum::VariantArray;
 
-const POWERUP_SIZE: f32 = 4.5; // As a percentage of the window's minimum dimension
+const POWER_UP_SIZE: f32 = 4.5; // As a percentage of the window's minimum dimension
 
-const MAXIMUM_NUMBER_OF_ACTIVE_POWERUPS: usize = 4;
+const MAXIMUM_NUMBER_OF_ACTIVE_POWER_UPS: usize = 4;
 
-const TIME_BETWEEN_POWERUPS: f32 = 2.0;
+const TIME_BETWEEN_POWER_UPS: f32 = 5.0; // In seconds
 
 #[derive(SystemSet, Hash, Debug, Eq, PartialEq, Clone)]
 pub struct PowerUpsSet;
@@ -29,14 +25,14 @@ pub struct PowerUpsPlugin;
 impl Plugin for PowerUpsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SpawnTimer(Timer::from_seconds(
-            TIME_BETWEEN_POWERUPS,
+            TIME_BETWEEN_POWER_UPS,
             TimerMode::Repeating,
         )));
         app.add_systems(Startup, setup_power_up_assets);
         app.add_systems(OnEnter(GameState::Game), reset_spawn_timer);
         app.add_systems(
             Update,
-            (spawn_power_up, handle_powerup_hit).in_set(PowerUpsSet),
+            (spawn_power_up, handle_power_up_hit).in_set(PowerUpsSet),
         );
         app.add_message::<PowerUpHit>();
     }
@@ -61,14 +57,14 @@ pub enum PowerUpKind {
 }
 
 impl PowerUpKind {
-    /// Colour of the ring around the power-up badge, grouped by effect.
+    /// Color of the ring around the power-up badge, grouped by effect.
     fn color(self) -> Color {
         match self {
-            Self::PaddleHalf | Self::PaddleDouble => theme::POWERUP_WIDTH,
-            Self::PaddleSpeedHalf | Self::PaddleSpeedDouble => theme::POWERUP_PADDLE_SPEED,
-            Self::BallSpeedHalf | Self::BallSpeedDouble => theme::POWERUP_BALL_SPEED,
-            Self::EarnOneLife => theme::POWERUP_EARN_LIFE,
-            Self::LoseOneLife => theme::POWERUP_LOSE_LIFE,
+            Self::PaddleHalf | Self::PaddleDouble => theme::POWER_UP_WIDTH,
+            Self::PaddleSpeedHalf | Self::PaddleSpeedDouble => theme::POWER_UP_PADDLE_SPEED,
+            Self::BallSpeedHalf | Self::BallSpeedDouble => theme::POWER_UP_BALL_SPEED,
+            Self::EarnOneLife => theme::POWER_UP_EARN_LIFE,
+            Self::LoseOneLife => theme::POWER_UP_LOSE_LIFE,
         }
     }
 }
@@ -117,14 +113,14 @@ fn setup_power_up_assets(
     commands.insert_resource(PowerUpAssets {
         badge_mesh: meshes.add(Circle::new(0.5)),
         ring_mesh: meshes.add(Annulus::new(0.40, 0.5)),
-        badge_material: materials.add(ColorMaterial::from_color(theme::POWERUP_BADGE)),
-        glyph_material: materials.add(ColorMaterial::from_color(theme::POWERUP_GLYPH)),
+        badge_material: materials.add(ColorMaterial::from_color(theme::POWER_UP_BADGE)),
+        glyph_material: materials.add(ColorMaterial::from_color(theme::POWER_UP_GLYPH)),
         kinds,
     });
 }
 
 /// Each kind gets a distinct glyph so it can be recognised by shape as well as
-/// by the ring colour.
+/// by the ring color.
 fn glyph_mesh(kind: PowerUpKind, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
     match kind {
         PowerUpKind::PaddleDouble => meshes.add(Rectangle::new(0.62, 0.14)),
@@ -164,7 +160,7 @@ fn spawn_power_up(
     assets: Res<PowerUpAssets>,
     window: Query<&mut Window>,
 ) {
-    if current_power_ups.iter().len() == MAXIMUM_NUMBER_OF_ACTIVE_POWERUPS {
+    if current_power_ups.iter().len() == MAXIMUM_NUMBER_OF_ACTIVE_POWER_UPS {
         return;
     }
     // Tick the timer with the delta time from the `Time` resource
@@ -176,39 +172,39 @@ fn spawn_power_up(
         };
         let min_window_dimension = window.width().min(window.height());
 
-        let powerup_x = rand::rng().random_range(
+        let power_up_x = rand::rng().random_range(
             -min_window_dimension / 2.0
                 + 2.0 * GAP_BETWEEN_PADDLE_AND_FLOOR * min_window_dimension / 100.0
                 ..min_window_dimension / 2.0
                     - 2.0 * GAP_BETWEEN_PADDLE_AND_FLOOR * min_window_dimension / 100.0,
         );
-        let powerup_y = rand::rng().random_range(
+        let power_up_y = rand::rng().random_range(
             -min_window_dimension / 2.0
                 + 2.0 * GAP_BETWEEN_PADDLE_AND_FLOOR * min_window_dimension / 100.0
                 ..min_window_dimension / 2.0
                     - 2.0 * GAP_BETWEEN_PADDLE_AND_FLOOR * min_window_dimension / 100.0,
         );
 
-        let active_powerups: Vec<_> = current_power_ups
+        let active_power_ups: Vec<_> = current_power_ups
             .iter()
-            .map(|powerup| powerup.kind)
+            .map(|power_up| power_up.kind)
             .collect();
 
-        let powerups_to_choose_from: Vec<_> = PowerUpKind::VARIANTS
+        let power_ups_to_choose_from: Vec<_> = PowerUpKind::VARIANTS
             .into_iter()
-            .filter(|powerup_kind| !active_powerups.contains(powerup_kind))
+            .filter(|power_up_kind| !active_power_ups.contains(power_up_kind))
             .collect();
 
         let mut rng = rand::rng();
-        let powerup_kind = **powerups_to_choose_from.choose(&mut rng).unwrap();
+        let power_up_kind = **power_ups_to_choose_from.choose(&mut rng).unwrap();
 
-        let size = POWERUP_SIZE * min_window_dimension / 100.0;
+        let size = POWER_UP_SIZE * min_window_dimension / 100.0;
 
         spawn_power_up_at(
             &mut commands,
             &assets,
-            powerup_kind,
-            Vec3::new(powerup_x, powerup_y, 0.9),
+            power_up_kind,
+            Vec3::new(power_up_x, power_up_y, 0.9),
             size,
         );
     }
@@ -261,7 +257,7 @@ fn spawn_power_up_at(
         });
 }
 
-fn handle_powerup_hit(
+fn handle_power_up_hit(
     mut commands: Commands,
     mut messages: MessageReader<PowerUpHit>,
     mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives)>,
@@ -273,6 +269,7 @@ fn handle_powerup_hit(
         return;
     };
     let min_window_dimension = window.width().min(window.height());
+
     let (mut ball, mut ball_velocity) = ball.into_inner();
 
     for message in messages.read() {
