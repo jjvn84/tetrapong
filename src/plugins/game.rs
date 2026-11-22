@@ -1,10 +1,15 @@
 use crate::game_state::GameState;
 use crate::plugins::ball::{BallPlugin, BallSet};
 use crate::plugins::hud::HudPlugin;
+use crate::plugins::menu::MenuPlugin;
 use crate::plugins::paddle::{Lives, Paddle, PaddleLocation, PaddlePlugin, PaddleSet, PlayerType};
 use crate::plugins::physics::{PhysicsPlugin, PhysicsSet};
 use crate::plugins::powerups::{PowerUpsPlugin, PowerUpsSet};
+use crate::plugins::ui::{
+    MenuAction, UiPlugin, spawn_button, spawn_fullscreen, spawn_text, spawn_title,
+};
 use crate::plugins::walls::WallsPlugin;
+use crate::settings::Settings;
 use crate::theme;
 use bevy::prelude::*;
 
@@ -19,6 +24,7 @@ impl Plugin for GamePlugin {
         // `OnEnter` systems, and after `DefaultPlugins` (which provides `StatesPlugin`).
         app.init_state::<GameState>();
         app.init_resource::<GameResult>();
+        app.init_resource::<Settings>();
 
         app.add_plugins(WallsPlugin);
         app.add_plugins(BallPlugin);
@@ -26,6 +32,8 @@ impl Plugin for GamePlugin {
         app.add_plugins(PhysicsPlugin);
         app.add_plugins(HudPlugin);
         app.add_plugins(PowerUpsPlugin);
+        app.add_plugins(UiPlugin);
+        app.add_plugins(MenuPlugin);
 
         app.add_systems(Startup, setup);
 
@@ -70,11 +78,12 @@ fn setup(mut commands: Commands) {
 
 /// Ends the round once every human paddle is gone, or once only one paddle is left.
 ///
-/// The last paddle standing always wins, whatever controls it. The human-loss rule
-/// only applies while more than one paddle survives: it ends the round as soon as no
+/// The last paddle standing always wins, whatever controls it. When the settings
+/// contain at least one human paddle, the round also ends as soon as no
 /// `PlayerType::Human` paddle is left, even if several computer paddles are alive.
 fn check_game_over(
     paddles: Query<(&Paddle, &Lives, &PlayerType)>,
+    settings: Res<Settings>,
     mut next: ResMut<NextState<GameState>>,
     mut result: ResMut<GameResult>,
 ) {
@@ -84,7 +93,7 @@ fn check_game_over(
         .map(|(paddle, _, player_type)| (paddle.location, *player_type))
         .collect();
 
-    if let Some(outcome) = decide_outcome(&alive) {
+    if let Some(outcome) = decide_outcome(&alive, settings.has_human_players()) {
         result.0 = outcome;
         next.set(GameState::GameOver);
     }
@@ -92,22 +101,30 @@ fn check_game_over(
 
 /// Decides whether the round is over, given the paddles that still have lives.
 ///
+/// `humans_playing` tells the rule whether the configured round includes humans at
+/// all. An all-computer round must not end on the first frame just because no
+/// human is present; it runs until one paddle is left.
+///
 /// `None` means the round keeps going (including the empty case, which happens
 /// before the first paddle is spawned).
-fn decide_outcome(alive: &[(PaddleLocation, PlayerType)]) -> Option<GameResultVariant> {
+fn decide_outcome(
+    alive: &[(PaddleLocation, PlayerType)],
+    humans_playing: bool,
+) -> Option<GameResultVariant> {
+    if alive.is_empty() {
+        return None;
+    }
+
     // The last paddle standing wins, even if it is computer-controlled.
     if let [(location, _)] = alive {
         return Some(GameResultVariant::Winner(*location));
     }
 
-    if alive.is_empty() {
-        return None;
-    }
-
     // With more than one survivor, losing every human paddle ends the round.
-    if !alive
-        .iter()
-        .any(|(_, player_type)| *player_type == PlayerType::Human)
+    if humans_playing
+        && !alive
+            .iter()
+            .any(|(_, player_type)| *player_type == PlayerType::Human)
     {
         return Some(GameResultVariant::HumansEliminated);
     }
@@ -116,58 +133,42 @@ fn decide_outcome(alive: &[(PaddleLocation, PlayerType)]) -> Option<GameResultVa
 }
 
 fn spawn_game_over_screen(mut commands: Commands, result: Res<GameResult>) {
-    let (title, title_color) = match &result.0 {
+    let (title, title_color, subtitle) = match &result.0 {
         GameResultVariant::Winner(location) => (
-            format!("{location:?} paddle wins!"),
+            format!("{} paddle wins!", location.label()),
             theme::paddle_color(*location),
+            None,
         ),
-        GameResultVariant::HumansEliminated => ("Game Over".to_string(), theme::BALL),
+        GameResultVariant::HumansEliminated => (
+            "Game Over".to_string(),
+            theme::BALL,
+            Some("No human paddle remains."),
+        ),
         GameResultVariant::InProgress => return,
     };
 
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                row_gap: Val::Px(24.0),
-                ..default()
-            },
-            BackgroundColor(theme::OVERLAY),
-            DespawnOnExit(GameState::GameOver),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Text::new(title),
-                TextFont {
-                    font_size: FontSize::Px(56.0),
-                    ..default()
-                },
-                TextColor(title_color),
-            ));
-            if result.0 == GameResultVariant::HumansEliminated {
-                parent.spawn((
-                    Text::new("No human player remains"),
-                    TextFont {
-                        font_size: FontSize::Px(36.0),
-                        ..default()
-                    },
-                    TextColor(theme::TEXT_MUTED),
-                ));
+    spawn_fullscreen(
+        &mut commands,
+        GameState::GameOver,
+        theme::OVERLAY,
+        |parent| {
+            spawn_title(parent, title, title_color);
+            if let Some(subtitle) = subtitle {
+                spawn_text(parent, subtitle, 24.0, theme::TEXT_MUTED);
             }
-            parent.spawn((
-                Text::new("Press R to play again"),
-                TextFont {
-                    font_size: FontSize::Px(24.0),
-                    ..default()
-                },
-                TextColor(theme::TEXT_MUTED),
-            ));
-        });
+
+            spawn_button(parent, MenuAction::Play, "Play again");
+            spawn_button(parent, MenuAction::BackToMenu, "Main menu");
+            spawn_button(parent, MenuAction::Quit, "Quit");
+
+            spawn_text(
+                parent,
+                "Press R to restart or Esc for the menu.",
+                16.0,
+                theme::TEXT_MUTED,
+            );
+        },
+    );
 }
 
 fn restart_on_key(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<GameState>>) {
@@ -194,13 +195,13 @@ mod tests {
             (Top, Computer),
         ];
 
-        assert_eq!(decide_outcome(&alive), None);
+        assert_eq!(decide_outcome(&alive, true), None);
     }
 
     #[test]
     fn last_human_paddle_wins() {
         assert_eq!(
-            decide_outcome(&[(Bottom, Human)]),
+            decide_outcome(&[(Bottom, Human)], true),
             Some(GameResultVariant::Winner(Bottom))
         );
     }
@@ -210,7 +211,7 @@ mod tests {
         let alive = [(Left, Computer), (Right, Computer), (Top, Computer)];
 
         assert_eq!(
-            decide_outcome(&alive),
+            decide_outcome(&alive, true),
             Some(GameResultVariant::HumansEliminated)
         );
     }
@@ -220,23 +221,45 @@ mod tests {
         let alive = [(Bottom, Human), (Top, Human), (Left, Computer)];
 
         // With local multiplayer, one human going down is not the end of the round.
-        assert_eq!(decide_outcome(&alive), None);
+        assert_eq!(decide_outcome(&alive, true), None);
 
         let alive = [(Top, Human), (Left, Computer)];
 
-        assert_eq!(decide_outcome(&alive), None);
+        assert_eq!(decide_outcome(&alive, true), None);
     }
 
     #[test]
     fn last_paddle_standing_wins_even_when_it_is_a_computer() {
         assert_eq!(
-            decide_outcome(&[(Left, Computer)]),
+            decide_outcome(&[(Left, Computer)], true),
             Some(GameResultVariant::Winner(Left))
         );
     }
 
     #[test]
+    fn all_computer_round_keeps_running_until_one_is_left() {
+        let all_computer = [
+            (Left, Computer),
+            (Right, Computer),
+            (Bottom, Computer),
+            (Top, Computer),
+        ];
+
+        // No humans were configured, so their absence is not a loss condition.
+        assert_eq!(decide_outcome(&all_computer, false), None);
+
+        let three_left = &all_computer[..3];
+        assert_eq!(decide_outcome(three_left, false), None);
+
+        assert_eq!(
+            decide_outcome(&[(Right, Computer)], false),
+            Some(GameResultVariant::Winner(Right))
+        );
+    }
+
+    #[test]
     fn empty_arena_is_not_decided() {
-        assert_eq!(decide_outcome(&[]), None);
+        assert_eq!(decide_outcome(&[], true), None);
+        assert_eq!(decide_outcome(&[], false), None);
     }
 }

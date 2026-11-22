@@ -3,6 +3,7 @@ use crate::game_state::GameState;
 use crate::plugins::ball::{BALL_STARTING_POSITION, Ball, ServePause};
 use crate::plugins::physics::{Collider, ColliderType, Velocity};
 use crate::plugins::walls::WALL_THICKNESS;
+use crate::settings::Settings;
 use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 use rand::RngExt;
@@ -106,10 +107,44 @@ pub enum PaddleLocation {
     Top,
 }
 
-#[derive(Component, Eq, PartialEq, Clone, Copy)]
+impl PaddleLocation {
+    pub const ALL: [Self; Self::COUNT] = [Self::Left, Self::Right, Self::Bottom, Self::Top];
+    pub const COUNT: usize = 4;
+
+    /// Index into `Settings::player_types`.
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Bottom => 2,
+            Self::Top => 3,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+            Self::Bottom => "Bottom",
+            Self::Top => "Top",
+        }
+    }
+}
+
+#[derive(Component, Eq, PartialEq, Debug, Clone, Copy, Default)]
 pub enum PlayerType {
     Human,
+    #[default]
     Computer,
+}
+
+impl PlayerType {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Human => "Human",
+            Self::Computer => "Computer",
+        }
+    }
 }
 
 #[derive(Component)]
@@ -124,35 +159,19 @@ pub struct LoseLife {
 #[derive(Message)]
 pub struct PaddleEliminated(pub PaddleLocation);
 
-fn setup(mut commands: Commands, window: Query<&mut Window>) {
+fn setup(mut commands: Commands, window: Query<&mut Window>, settings: Res<Settings>) {
     let Ok(window) = window.single() else {
         return;
     };
     let min_window_dimension = window.width().min(window.height());
 
-    commands.spawn(Paddle::new(
-        PaddleLocation::Left,
-        PlayerType::Computer,
-        min_window_dimension,
-    ));
-
-    commands.spawn(Paddle::new(
-        PaddleLocation::Right,
-        PlayerType::Computer,
-        min_window_dimension,
-    ));
-
-    commands.spawn(Paddle::new(
-        PaddleLocation::Bottom,
-        PlayerType::Human,
-        min_window_dimension,
-    ));
-
-    commands.spawn(Paddle::new(
-        PaddleLocation::Top,
-        PlayerType::Computer,
-        min_window_dimension,
-    ));
+    for location in PaddleLocation::ALL {
+        commands.spawn(Paddle::new(
+            location,
+            settings.player_type(location),
+            min_window_dimension,
+        ));
+    }
 }
 
 fn on_window_resize(
@@ -174,8 +193,12 @@ fn move_paddle(
     paddle_query: Query<(&Paddle, &PlayerType, &mut Transform), With<Paddle>>,
     ball_transform: Single<&Transform, (With<Ball>, Without<Paddle>)>,
     window: Query<&mut Window>,
+    settings: Res<Settings>,
     time: Res<Time>,
 ) {
+    // Easy/Medium/Hard only change how often the computer paddles skip a frame.
+    let fail_threshold = settings.difficulty.fail_threshold();
+
     for (paddle, player_type, mut paddle_transform) in paddle_query {
         let mut direction = Vec3::ZERO;
 
@@ -240,7 +263,7 @@ fn move_paddle(
                     direction += Vec3::Y;
                 }
 
-                if fail_probability >= 5.0 {
+                if fail_probability >= fail_threshold {
                     direction = Vec3::ZERO
                 }
             }
@@ -253,7 +276,7 @@ fn move_paddle(
                 if offset.x > 0.0 {
                     direction += Vec3::X;
                 }
-                if fail_probability >= 5.0 {
+                if fail_probability >= fail_threshold {
                     direction = Vec3::ZERO
                 }
             }

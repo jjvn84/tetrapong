@@ -6,9 +6,13 @@ Guidance for AI coding agents working in this repository.
 
 `tetrapong` is a **work-in-progress** four-paddle Pong clone written in Rust with Bevy
 0.20. There are four paddles (left, right, top, bottom), one per wall of a square arena.
-The bottom paddle is human-controlled; the others use simple AI. The project is an early
-prototype: movement, collisions, scoring, the serve delay, paddle elimination, and the
-game-over/restart flow work, but the game is far from finished.
+Each side can be set to human or computer control in the Options menu; by default the bottom
+paddle is human and the rest use simple AI. The game boots into a main menu and has a
+How to Play screen, an Options screen, a running round, and a game-over screen.
+
+The project is an early prototype: movement, collisions, scoring, the serve delay, paddle
+elimination, menus, per-side players, difficulty, and the game-over/restart flow work, but
+the game is far from finished.
 
 Do not assume the game is feature-complete. Check the "Status" section of `README.md`
 before implementing or "fixing" gameplay behaviour.
@@ -47,10 +51,15 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
 - `game.rs` — `GamePlugin`, which owns the app-level wiring: it adds `DefaultPlugins`, the
   camera, every sub-plugin, `GameState`, the state gating, game-over detection, and the
   result screen.
+- `menu.rs` — `MenuPlugin`, which spawns the main menu, Options and How to Play screens and
+  handles `Esc` back to the main menu.
+- `ui.rs` — shared menu building blocks: `MenuAction`, `MenuButton`, `spawn_button`,
+  `spawn_choice_button`, title/text helpers, selected/hovered/pressed visuals, and the single
+  `Activate` observer that drives every menu button.
 - `ball.rs` — spawns the ball at the start of each round, sets its size from the window,
   resets it on resize, and owns `ServePause` (the 2-second timer that relaunches the ball
   after a point).
-- `paddle.rs` — spawns the four paddles at the start of each round, defines
+- `paddle.rs` — spawns the four paddles at the start of each round from `Settings`, defines
   `PaddleLocation`, `PlayerType`, `Lives`, `LoseLife`, and `PaddleEliminated`; handles
   human input, computer movement, life loss, and despawning eliminated paddles.
 - `physics.rs` — `Velocity`, `Collider`/`ColliderType`, and `move_ball`, which
@@ -59,36 +68,51 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
   power-up.
 - `walls.rs` — spawns the four arena walls, each carrying a `WallLocation` component, and
   keeps them aligned on resize. `WallLocation::owner` maps a wall to its `PaddleLocation`.
-- `hud.rs` — spawns and updates the per-side lives panels, including the 0 state when a
-  paddle is eliminated.
+- `hud.rs` — spawns and updates the per-side lives panels for the current round, including
+  the 0 state when a paddle is eliminated.
 - `powerups.rs` — `PowerUpKind`, spawning of collectible badges at random positions, their
   preloaded meshes/materials, and applying each effect to the paddle that last hit the ball.
 
-`src/game_state.rs` defines `GameState` (`Game` / `GameOver`); `src/theme.rs` holds the
-palette. Plugins import colours and the state from those modules rather than defining their
-own constants.
+`src/game_state.rs` defines `GameState` (`MainMenu`, `Options`, `HowToPlay`, `Game`,
+`GameOver`; `MainMenu` is the default). `src/settings.rs` defines the `Settings` resource
+(per-paddle `PlayerType` and `Difficulty`). `src/theme.rs` holds the palette. Plugins import
+colours and the state from those modules rather than defining their own constants.
 
 Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`.
 `src/main.rs` only adds `GamePlugin`; `STARTING_LIVES` lives there too.
 
 ### Game states and round lifecycle
 
+- `GameState` has five variants: `MainMenu` (the default), `Options`, `HowToPlay`, `Game`,
+  and `GameOver`. `GamePlugin` calls `init_state::<GameState>()`, so the app boots into
+  `MainMenu`.
+- Each menu screen is spawned in `OnEnter(its state)` and carries `DespawnOnExit(that
+  state)`; entering another state removes the old screen before building the new one.
 - Each gameplay plugin declares a `SystemSet` (`BallSet`, `PaddleSet`, `PhysicsSet`,
   `PowerUpsSet`) and tags its gameplay systems with `.in_set(..)`. `GamePlugin` applies
   `run_if(in_state(GameState::Game))` to those sets once, so plugins never import the state
   for gating.
-- Systems that must keep running in both states (all `on_window_resize` systems, the HUD,
-  the game-over screen and the restart input) are not put in those sets.
-- Round entities (ball, paddles, power-up badges) are spawned in `OnEnter(GameState::Game)`
-  and carry `DespawnOnExit(GameState::Game)`. Leaving `Game` clears the arena; re-entering
-  it rebuilds a fresh round, which is what `R` triggers. `OnEnter(Game)` also resets
-  `GameResult` and the power-up `SpawnTimer`.
-- Arena-level entities (camera, walls, HUD panels, `PowerUpAssets`) stay on `Startup` and
-  survive state changes.
+- Systems that must keep running in all states (all `on_window_resize` systems, the menu
+  button visuals, the `Esc` handler) are not put in those sets.
+- Round entities (ball, paddles, HUD panels, power-up badges) are spawned in
+  `OnEnter(GameState::Game)` and carry `DespawnOnExit(GameState::Game)`. Leaving `Game`
+  clears the arena and HUD; re-entering it rebuilds a fresh round, which is what `R` and the
+  **Play again** button trigger. `OnEnter(Game)` also resets `GameResult` and the power-up
+  `SpawnTimer`.
+- Arena-level entities (camera, walls, `PowerUpAssets`) stay on `Startup` and survive state
+  changes.
 - `check_game_over` runs in `Update` after `PaddleSet`/`PowerUpsSet` and delegates the
-  decision to `decide_outcome`. The last paddle standing wins, whoever controls it; with
-  more than one survivor left, the round also ends as soon as every `PlayerType::Human`
-  paddle is gone (loss). The decision is unit-tested.
+  decision to `decide_outcome`. The last paddle standing wins, whoever controls it. When
+  `Settings::has_human_players()` is true, the round also ends as soon as every
+  `PlayerType::Human` paddle is gone (loss); an all-computer round instead runs until one
+  paddle is left. The decision is unit-tested.
+- The game-over overlay is spawned in `OnEnter(GameOver)` with buttons for Play again, Main
+  menu and Quit. `R` restarts; `Esc` returns to the main menu from every non-menu state
+  (`menu.rs::escape_to_menu`).
+- `Settings` is the source of truth for player ownership and difficulty. `paddle.rs::setup`
+  reads `settings.player_type(location)` for each of `PaddleLocation::ALL`, and
+  `move_paddle` uses `settings.difficulty.fail_threshold()` for both computer branches.
+  Options changes therefore apply to the next round; they are not applied mid-round.
 
 ### Key conventions
 
@@ -102,7 +126,18 @@ Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`
 - **Collisions.** Anything the ball should bounce off gets a `Collider` component. The
   ball is a `BoundingCircle`; colliders are treated as `Aabb2d`.
 - **Paddle ownership.** `PaddleLocation` identifies a side and computes its position and
-  size. Walls map to `PaddleLocation` via `WallLocation::owner`.
+  size. `PaddleLocation::ALL`, `index()` and `label()` keep settings, spawning, menus and the
+  HUD in the same side order. Walls map to `PaddleLocation` via `WallLocation::owner`.
+- **Settings drive the round.** Read `Settings` for player ownership and difficulty instead
+  of hard-coding `PlayerType` or the `fail_probability` threshold. Default settings are
+  Bottom = Human, the other three = Computer, Difficulty = Medium.
+- **Menu UI goes through `ui.rs`.** Add screens in `menu.rs`, build them with `spawn_screen` /
+  `spawn_title` / `spawn_text` / `spawn_button`, and give buttons a `MenuAction`. The single
+  `Activate` observer in `ui.rs` handles navigation, settings changes and quitting; don't add
+  per-button observers or duplicate state-transition logic.
+- **Button labels are not pickable.** Every text node inside a button (and every layout
+  container) carries `Pickable::IGNORE`; otherwise the text sits on top of the button and
+  swallows clicks. Buttons keep `Pickable::default()`.
 - **Scoring flow.** `physics.rs` emits `LoseLife(PaddleLocation)` on a wall hit;
   `paddle.rs::handle_lose_life` is the single place that decrements lives, resets the ball,
   and starts the serve pause. Keep game rules out of the collision system.
@@ -135,6 +170,17 @@ This code targets Bevy 0.20, which differs from older examples online:
 - Buffered events are `Message`s: use `#[derive(Message)]`, `app.add_message::<T>()`, and
   `MessageReader<T>` / `MessageWriter<T>`. This is what `WindowResized`, `LoseLife`, and
   `PaddleEliminated` use. `Event`/`On` are the separate observer API — don't mix them up.
+- UI buttons use the headless `bevy::ui_widgets::Button`, **not** the deprecated
+  `bevy::ui::Button` that the prelude also exports. Import the widget explicitly
+  (`use bevy::ui_widgets::{Activate, Button};`); an explicit import shadows the prelude glob.
+- A button reports activation through the `Activate` entity event. `UiPlugin` registers one
+  global observer with `app.add_observer(..)` and reads the entity's `MenuAction`; observers
+  can use `Res`/`ResMut`/`MessageWriter` normally, including `MessageWriter<AppExit>`.
+- Hover state is not automatic: insert `Hovered::default()` from
+  `bevy::picking::hover::Hovered` on the button. Press state is `bevy::ui::Pressed` (inserted
+  and removed by the widget). `Pickable` (from `bevy::picking`) controls hit-testing;
+  non-button UI nodes must use `Pickable::IGNORE`.
+- UI node borders use `BorderColor` (`BorderColor::all(color)`) plus `border` on `Node`.
 - `TextFont` takes `font_size: FontSize::Px(..)` in this version; check existing HUD code.
 - `BorderRadius` is a field on `Node` (`node.border_radius = BorderRadius::all(..)`), not a
   standalone UI component.
@@ -152,9 +198,10 @@ This code targets Bevy 0.20, which differs from older examples online:
 
 - **Game over is decided by number of players, not by side.** `game.rs::decide_outcome`
   awards the win to the last paddle standing, whatever `PlayerType` it has. With two or more
-  survivors, the round ends as soon as every `PlayerType::Human` paddle is gone. If you add
-  more human players, keep the "all humans eliminated" check rather than checking a
-  hard-coded side.
+  survivors, the round ends as soon as every `PlayerType::Human` paddle is gone — but only
+  when the settings started with at least one human (`humans_playing`). If you add more
+  human players, keep the "all humans eliminated" check rather than checking a hard-coded
+  side.
 - **Eliminated sides still score.** Their wall keeps emitting `LoseLife`, but no paddle
   matches, so nothing is decremented or reset and the ball bounces off that wall. Decide
   the intended rule before changing this.
@@ -167,20 +214,24 @@ This code targets Bevy 0.20, which differs from older examples online:
 - **Resize still assumes entity order.** `walls.rs::on_window_resize` maps query iteration
   order to `WallLocation` even though walls now carry a `WallLocation` component. Prefer
   querying `(&WallLocation, &mut Transform)` if you touch it.
-- **Top paddle input is dead code.** The human branch for `PaddleLocation::Top` exists but
-  the paddle is spawned as `PlayerType::Computer`.
 - **AI is intentionally imperfect.** Computer paddles skip movement randomly
-  (`fail_probability`), and this is deliberate. Don't "fix" it without being asked.
+  (`fail_probability`), and this is deliberate. The Easy/Medium/Hard thresholds are defined
+  in `settings.rs::Difficulty::fail_threshold`; don't "fix" the misses without being asked.
+- **Menus are mouse-driven.** Buttons respond to clicks; `Esc` is the only menu keyboard
+  shortcut. There is no Tab focus or gamepad navigation yet.
+- **Menu sizes are fixed pixels.** Menu layouts use `Val::Px` rather than the
+  window-relative sizing used by the arena, so very small windows can clip content.
 - **Few tests.** `.github/workflows/build.yml` packages release builds for Linux and Windows
-  and publishes them on `v*` tags. The only unit tests cover ball substepping
-  (`physics.rs`) and the game-over rule (`game.rs::decide_outcome`). If you add logic that
-  is hard to verify by running the game, consider adding unit tests.
+  and publishes them on `v*` tags. Unit tests cover ball substepping (`physics.rs`), the
+  game-over rule (`game.rs::decide_outcome`), and settings defaults/thresholds
+  (`settings.rs`). If you add logic that is hard to verify by running the game, consider
+  adding unit tests.
 
 ## Working style
 
 - Keep changes small and focused; match the existing plugin/module structure and naming.
 - Avoid adding dependencies unless clearly necessary; the project intentionally has only
-  `bevy` and `rand`.
+  `bevy`, `rand` and `strum`.
 - When changing scoring or lives, keep `LoseLife` and `PaddleEliminated` as the interface
   between physics, paddle logic, and the HUD.
 - Update `README.md` when you change controls, status, game rules, or the project layout.

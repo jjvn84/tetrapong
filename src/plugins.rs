@@ -1,7 +1,9 @@
 pub mod ball;
 pub mod game;
 pub mod hud;
+pub mod menu;
 pub mod paddle;
 pub mod physics;
 pub mod powerups;
+pub mod ui;
 pub mod walls;

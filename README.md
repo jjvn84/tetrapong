@@ -1,26 +1,31 @@
 # tetrapong
 
 > 🚧 **WORK IN PROGRESS — this project is not finished.**
-> Expect missing features (menus, audio, and local multiplayer are not there yet), placeholder
+> Expect missing features (pause menu, audio, and networked play are not there yet), placeholder
 > behaviour, and breaking changes at any time.
 
 A four-paddle take on Pong, built in Rust with [Bevy](https://bevyengine.org/) 0.20.
 
 Instead of the usual two paddles, the arena has one on each side — left, right, top, and
 bottom. The ball bounces around the inside of the box, and each paddle defends its own
-wall. Only the bottom paddle is currently controlled by a human; the other three are driven
-by simple computer logic.
+wall. Every paddle can be set to human or computer control in the Options menu; by default
+the bottom paddle is human and the other three are driven by simple computer logic.
 
 ## Status
 
-This is an early prototype. The core loop includes scoring, a serve delay, paddle
-elimination, and a game-over screen with a restart, but the game is still far from finished.
+This is an early prototype. The core loop includes menus, configurable players and
+difficulty, scoring, a serve delay, paddle elimination, and a game-over screen, but the game
+is still far from finished.
 
 **Working**
 
+- Main menu with Play, How to Play, Options and Quit
+- Options for setting each of the four paddles to Human or Computer
+- Easy / Medium / Hard difficulty for the computer paddles
+- How to Play screen explaining the rules, controls and every power-up
 - Window-relative arena that resizes with the window
 - Four paddles, each with its own lives counter and HUD label
-- Human control of the bottom paddle; computer control of the other three
+- Human control for any paddle assigned to a player, using dedicated keys per side
 - Ball movement and reflection off walls and paddles
 - Scoring: when the ball hits a wall, that side loses a life
 - Ball reset and a 2-second serve pause before relaunching in a random direction
@@ -28,16 +33,42 @@ elimination, and a game-over screen with a restart, but the game is still far fr
 - Power-ups that spawn in the arena and apply to the last paddle to hit the ball
 - Dark neon theme with a colour per side and a distinct glyph for every power-up
 - Game over when every human paddle is eliminated or only one paddle is left, with a
-  result screen and `R` to start a new round
+  result screen offering Play again, Main menu and Quit
 
 **Not implemented yet**
 
 - Behaviour for an eliminated side: its wall still emits `LoseLife`, but no paddle remains
   to lose a life, so the ball keeps bouncing off that wall
-- Menus, pause menu, audio, and general polish
-- Human control for paddles other than the bottom one
-- Broader automated test coverage — only the ball substepping and the game-over rule are
-  unit-tested
+- Pause menu, audio, networked play, and general polish
+- Broader automated test coverage — ball substepping, the game-over rule, and the settings
+  resource are unit-tested; the UI is verified by playing the game
+
+## Menus and options
+
+The game boots into the main menu:
+
+- **Play** starts a round with the current settings.
+- **How to Play** explains the rules, the per-side controls, and every power-up.
+- **Options** lets you choose Human or Computer for each paddle, and the difficulty.
+- **Quit** closes the game.
+
+`Esc` returns to the main menu from any other screen, including a running round and the
+game-over screen. The game-over screen also has buttons for **Play again**, **Main menu**
+and **Quit**, and `R` still restarts a finished round.
+
+The difficulty only changes how often a computer paddle skips its movement for a frame.
+`fail_probability` is drawn from `0.0..10.0`; when it reaches the threshold below, the
+paddle does not move that frame:
+
+| Difficulty | `fail_probability` threshold |
+| ---------- | ---------------------------- |
+| Easy       | `>= 5.0`                     |
+| Medium     | `>= 6.0`                     |
+| Hard       | `>= 7.0`                     |
+
+Any combination is allowed, including an all-computer round. If at least one human paddle
+is configured, the round ends as soon as every human paddle is eliminated; an all-computer
+round instead runs until only one paddle remains.
 
 ## How it plays
 
@@ -47,9 +78,10 @@ elimination, and a game-over screen with a restart, but the game is still far fr
 4. The ball resets to the centre, waits 2 seconds, then serves in a random direction.
 5. At 0 lives, the paddle is removed and its HUD label shows 0.
 6. The round ends when only one paddle is left — it wins, even if it is computer-controlled —
-   or when every human-controlled paddle has been eliminated. The game freezes and a result
-   screen appears; press `R` to start a new round with fresh lives, a new ball, and no
-   leftover power-ups.
+   or, when at least one human is configured, when every human-controlled paddle has been
+   eliminated. The game freezes and a result screen appears; **Play again** or `R` starts a
+   new round with fresh lives, a new ball, and no leftover power-ups, while **Main menu** or
+   `Esc` returns to the title screen.
 
 ## Power-ups
 
@@ -81,25 +113,28 @@ own accent colour so the four sides stay easy to tell apart. All colours live in
 | --------------------- | --------------------------------- |
 | Left paddle           | Cyan                              |
 | Right paddle          | Magenta                           |
-| Bottom paddle (human) | Lime                              |
+| Bottom paddle         | Lime                              |
 | Top paddle            | Amber                             |
 | Walls                 | Slate (uniform on all four sides) |
 | Ball                  | Warm white                        |
 | HUD panels            | Dark slate, with per-side text    |
+| Menus                 | Dark navy with slate buttons and a cyan accent for the active option |
 | Game-over overlay     | Translucent navy, winner text in that side's colour |
 
 ## Controls
 
-| Action                  | Key                                |
-| ----------------------- | ---------------------------------- |
-| Move bottom paddle      | `←` / `→`                          |
-| Move top paddle\*       | `A` / `D`                          |
-| Restart after game over | `R`                                |
+Paddle keys only apply to paddles set to **Human** in Options.
 
-\* The top paddle is currently computer-controlled, so the `A`/`D` binding is not reachable
-in normal play. It is kept in the input code for future local multiplayer.
-
-Close the window to quit.
+| Action                    | Key                                |
+| ------------------------- | ---------------------------------- |
+| Move bottom paddle        | `←` / `→`                          |
+| Move left paddle          | `Q` / `A`                          |
+| Move right paddle         | `I` / `K`                          |
+| Move top paddle           | `F` / `G`                          |
+| Use the menus             | Mouse; click a button              |
+| Go back to the main menu  | `Esc`                              |
+| Restart after game over   | `R`                                |
+| Quit                      | **Quit** button, or close the window |
 
 ## Requirements
 
@@ -156,10 +191,13 @@ pull request are also available as workflow artifacts on the Actions tab.
 ├── flake.nix             # Nix dev shell with Rust and Bevy system libraries
 └── src
     ├── main.rs           # Entry point: adds GamePlugin, shared constants
-    ├── game_state.rs     # GameState: Game / GameOver
+    ├── game_state.rs     # GameState: MainMenu / Options / HowToPlay / Game / GameOver
+    ├── settings.rs       # Settings: per-paddle Human/Computer and AI difficulty
     ├── theme.rs          # Central colour palette used by every plugin
     └── plugins
         ├── game.rs       # App wiring, state gating, game-over detection, result screen
+        ├── menu.rs       # Main menu, options and How to Play screens
+        ├── ui.rs         # Shared menu buttons, actions and hover visuals
         ├── ball.rs       # Ball entity, sizing, serve-pause timer and relaunch
         ├── paddle.rs     # Paddles, input/AI, lives, life-loss and elimination
         ├── physics.rs    # Velocity, colliders, collisions, emits LoseLife on wall hits
@@ -172,11 +210,17 @@ The game is organised as one Bevy plugin per concern, all registered by `GamePlu
 `src/plugins/game.rs`. Arena dimensions are expressed as percentages of the window's
 smaller dimension so the game scales with the window.
 
+`Settings` is the single source of truth for player ownership and difficulty. The Options
+screen edits it through menu button actions, `paddle.rs` reads it when spawning the round
+and when deciding how often a computer paddle skips a frame, and `game.rs` reads it to
+decide whether the "all humans eliminated" rule applies.
+
 Gameplay flows through messages: a wall collision emits `LoseLife`, `paddle.rs` decrements
 lives and resets the ball, and `PaddleEliminated` tells the HUD when a paddle has been
 removed. Gameplay systems are grouped in per-plugin system sets, and `GamePlugin` runs
-those sets only in `GameState::Game`; the ball, paddles and power-ups of a round are
-rebuilt whenever a new round starts.
+those sets only in `GameState::Game`; the ball, paddles, HUD and power-ups of a round are
+rebuilt whenever a new round starts, while the menu screens are spawned when their state is
+entered.
 
 ## Roadmap
 
@@ -184,9 +228,9 @@ Rough order of intended work:
 
 1. Decide what happens when a side is eliminated (stop scoring it, remove its goal, or end
    the game).
-2. Improve ball physics (angles based on paddle contact, spin).
-3. Let players choose which side(s) are human-controlled.
-4. Menus, audio, and further visual polish (glow, trails, hit effects).
+2. Add a pause menu, audio, and further visual polish (glow, trails, hit effects).
+3. Improve ball physics (angles based on paddle contact, spin).
+4. Consider networked or AI-vs-AI spectator modes.
 
 ## License
 

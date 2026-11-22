@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 mod game_state;
 mod plugins;
+mod settings;
 mod theme;
 use crate::plugins::game::GamePlugin;
 
