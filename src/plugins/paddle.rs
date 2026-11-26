@@ -1,7 +1,7 @@
 use crate::STARTING_LIVES;
 use crate::game_state::GameState;
-use crate::plugins::ball::{BALL_STARTING_POSITION, Ball, ServePause};
-use crate::plugins::physics::{Collider, ColliderType, Velocity};
+use crate::plugins::ball::{Ball, BallReset};
+use crate::plugins::physics::{Collider, ColliderType};
 use crate::plugins::walls::WALL_THICKNESS;
 use crate::settings::Settings;
 use crate::theme;
@@ -317,11 +317,10 @@ fn handle_lose_life(
     mut commands: Commands,
     mut messages: MessageReader<LoseLife>,
     mut eliminated: MessageWriter<PaddleEliminated>,
+    mut ball_reset: MessageWriter<BallReset>,
     mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives), With<Paddle>>,
-    ball: Single<(Entity, &mut Ball, &mut Transform, &mut Velocity), (With<Ball>, Without<Paddle>)>,
     window: Query<&mut Window>,
 ) {
-    let (ball_entity, mut ball, mut ball_transform, mut ball_velocity) = ball.into_inner();
     let mut point_already_scored = false;
 
     for LoseLife {
@@ -352,13 +351,8 @@ fn handle_lose_life(
                 paddle_transform.scale = paddle.size(min_window_dimension);
                 paddle.speed_multiplier = 1.0;
                 if *from_wall_hit {
-                    // Reset ball
-                    ball_transform.translation = BALL_STARTING_POSITION;
-                    ball_velocity.0 = Vec2::ZERO;
-                    ball.last_hit_by = None;
-                    ball.speed_multiplier = 1.0;
-
-                    commands.entity(ball_entity).insert(ServePause::new());
+                    // `ball.rs` owns the ball: it parks it and starts the serve pause.
+                    ball_reset.write(BallReset);
                 }
                 point_already_scored = true;
             }

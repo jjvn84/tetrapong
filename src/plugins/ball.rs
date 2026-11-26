@@ -1,6 +1,6 @@
 use crate::game_state::GameState;
-use crate::plugins::paddle::PaddleLocation;
-use crate::plugins::physics::Velocity;
+use crate::plugins::paddle::{PaddleLocation, PaddleSet};
+use crate::plugins::physics::{PhysicsSet, Velocity};
 use crate::theme;
 use bevy::{prelude::*, window::WindowResized};
 
@@ -21,9 +21,23 @@ pub struct BallPlugin;
 
 impl Plugin for BallPlugin {
     fn build(&self, app: &mut App) {
+        app.add_message::<BallReset>();
         app.add_systems(OnEnter(GameState::Game), setup);
-        app.add_systems(Update, on_window_resize);
-        app.add_systems(Update, tick_serve_pause.in_set(BallSet));
+        // `reset_ball` must land after the point is scored (PaddleSet) and before
+        // the ball is next moved (PhysicsSet), so a parked ball is never advanced
+        // with the reflected velocity from the wall hit.
+        app.add_systems(
+            Update,
+            ball_reset_on_resize.before(reset_ball).in_set(BallSet),
+        );
+        app.add_systems(Update, tick_serve_pause.before(reset_ball).in_set(BallSet));
+        app.add_systems(
+            Update,
+            reset_ball
+                .after(PaddleSet)
+                .before(PhysicsSet)
+                .in_set(BallSet),
+        );
     }
 }
 
@@ -54,6 +68,13 @@ impl Ball {
         Vec2::from_angle(angle_radians)
     }
 }
+
+/// Sent whenever the ball must return to the centre: after a point or a resize.
+///
+/// `reset_ball` is the only handler, so the ball is always parked, resized and
+/// served the same way regardless of what triggered the reset.
+#[derive(Message)]
+pub struct BallReset;
 
 #[derive(Component)]
 pub struct ServePause(pub Timer);
@@ -95,21 +116,39 @@ fn setup(
     ));
 }
 
-fn on_window_resize(
-    ball: Single<(&mut Transform, &mut Velocity, &Ball), With<Ball>>,
+fn ball_reset_on_resize(
     mut resize_reader: MessageReader<WindowResized>,
+    mut reset_writer: MessageWriter<BallReset>,
 ) {
-    let (mut ball_transform, mut ball_velocity, ball) = ball.into_inner();
-    for window in resize_reader.read() {
-        let min_window_dimension = window.width.min(window.height);
-
-        ball_transform.translation = BALL_STARTING_POSITION;
-
-        ball_transform.scale = Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.);
-
-        ball_velocity.0 =
-            Ball::initial_ball_direction().normalize() * ball.speed(min_window_dimension);
+    if resize_reader.read().next().is_some() {
+        reset_writer.write(BallReset);
     }
+}
+
+/// Parks the ball at the centre, restores its size for the current window and
+/// starts the serve pause. Both points and window resizes go through here.
+fn reset_ball(
+    mut commands: Commands,
+    mut reset_reader: MessageReader<BallReset>,
+    ball: Single<(Entity, &mut Ball, &mut Transform, &mut Velocity), With<Ball>>,
+    window: Query<&Window>,
+) {
+    if reset_reader.read().next().is_none() {
+        return;
+    }
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let min_window_dimension = window.width().min(window.height());
+
+    let (entity, mut ball, mut ball_transform, mut ball_velocity) = ball.into_inner();
+    ball_transform.translation = BALL_STARTING_POSITION;
+    ball_transform.scale = Vec2::splat(BALL_DIAMETER * min_window_dimension / 100.0).extend(1.);
+    ball_velocity.0 = Vec2::ZERO;
+    ball.last_hit_by = None;
+    ball.speed_multiplier = 1.0;
+
+    commands.entity(entity).insert(ServePause::new());
 }
 
 fn tick_serve_pause(
@@ -131,5 +170,49 @@ fn tick_serve_pause(
                 Ball::initial_ball_direction().normalize() * ball.speed(min_window_dimension);
             commands.entity(entity).remove::<ServePause>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::message::Messages;
+
+    #[test]
+    fn ball_reset_parks_the_ball_and_starts_a_serve_pause() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<GameState>();
+        app.add_plugins(BallPlugin);
+        app.add_message::<WindowResized>();
+
+        app.world_mut().spawn(Window::default());
+        let ball = app
+            .world_mut()
+            .spawn((
+                Ball {
+                    last_hit_by: Some(PaddleLocation::Bottom),
+                    speed_multiplier: 2.0,
+                },
+                Transform::from_xyz(10.0, 10.0, 1.0),
+                Velocity(Vec2::X),
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<Messages<BallReset>>()
+            .write(BallReset);
+        app.update();
+
+        let world = app.world();
+        assert_eq!(
+            world.get::<Transform>(ball).unwrap().translation,
+            BALL_STARTING_POSITION
+        );
+        assert_eq!(world.get::<Velocity>(ball).unwrap().0, Vec2::ZERO);
+        assert_eq!(world.get::<Ball>(ball).unwrap().last_hit_by, None);
+        assert_eq!(world.get::<Ball>(ball).unwrap().speed_multiplier, 1.0);
+        assert!(world.get::<ServePause>(ball).is_some());
     }
 }

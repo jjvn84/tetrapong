@@ -57,8 +57,8 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
   `spawn_choice_button`, title/text helpers, selected/hovered/pressed visuals, and the single
   `Activate` observer that drives every menu button.
 - `ball.rs` — spawns the ball at the start of each round, sets its size from the window,
-  resets it on resize, and owns `ServePause` (the 2-second timer that relaunches the ball
-  after a point).
+  and owns `BallReset` and `ServePause`: every reset (after a point or a resize) parks the
+  ball at the centre and starts the 2-second timer that relaunches it in a random direction.
 - `paddle.rs` — spawns the four paddles at the start of each round from `Settings`, defines
   `PaddleLocation`, `PlayerType`, `Lives`, `LoseLife`, and `PaddleEliminated`; handles
   human input, computer movement, life loss, and despawning eliminated paddles.
@@ -122,7 +122,9 @@ Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`
 - **Z ordering.** 2D entities keep `z` scale at `1.0`; use the translation `z` for
   layering (the ball uses `z = 1.0`).
 - **Resizing.** Entities that depend on window size implement an `on_window_resize` system
-  reading `WindowResized` messages and recomputing position/scale.
+  reading `WindowResized` messages and recomputing position/scale. The ball is the exception:
+  `ball.rs::ball_reset_on_resize` turns a resize into `BallReset` so the ball is parked and
+  served like after a point.
 - **Collisions.** Anything the ball should bounce off gets a `Collider` component. The
   ball is a `BoundingCircle`; colliders are treated as `Aabb2d`.
 - **Paddle ownership.** `PaddleLocation` identifies a side and computes its position and
@@ -139,9 +141,14 @@ Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`
   container) carries `Pickable::IGNORE`; otherwise the text sits on top of the button and
   swallows clicks. Buttons keep `Pickable::default()`.
 - **Scoring flow.** `physics.rs` emits `LoseLife(PaddleLocation)` on a wall hit;
-  `paddle.rs::handle_lose_life` is the single place that decrements lives, resets the ball,
-  and starts the serve pause. Keep game rules out of the collision system.
-- **Serve pause.** `ServePause(Timer)` is inserted on the ball when a point is scored;
+  `paddle.rs::handle_lose_life` is the single place that decrements lives, and it emits
+  `BallReset` for the live paddle that conceded. Keep game rules out of the collision system.
+- **Ball resets.** `ball.rs::reset_ball` is the only place that moves the ball back to the
+  centre, restores its size, clears its per-rally state (`last_hit_by`, `speed_multiplier`)
+  and inserts `ServePause`. Its only triggers are `BallReset` from a conceded point and from
+  a window resize. `reset_ball` is ordered after `PaddleSet` and before `PhysicsSet` so a
+  parked ball is never advanced with the reflected velocity from the wall hit.
+- **Serve pause.** `ServePause(Timer)` is inserted on the ball by `reset_ball`;
   `tick_serve_pause` relaunches the ball when the timer finishes. The ball's velocity is
   zeroed during the pause, so it stays parked at the centre.
 - **HUD follows messages, not entity lifetime.** Eliminated paddles are despawned, so the

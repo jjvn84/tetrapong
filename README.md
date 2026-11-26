@@ -75,7 +75,9 @@ round instead runs until only one paddle remains.
 1. The ball starts at the centre with a random direction.
 2. Each of the four paddles starts with 3 lives.
 3. If the ball reaches a wall, that wall's side loses a life.
-4. The ball resets to the centre, waits 2 seconds, then serves in a random direction.
+4. The ball resets to the centre, waits 2 seconds, then serves in a random direction at
+   its base speed. Resizing the window does the same: the ball returns to the centre and
+   serves again, losing any speed power-up it had.
 5. At 0 lives, the paddle is removed and its HUD label shows 0.
 6. The round ends when only one paddle is left — it wins, even if it is computer-controlled —
    or, when at least one human is configured, when every human-controlled paddle has been
@@ -198,7 +200,7 @@ pull request are also available as workflow artifacts on the Actions tab.
         ├── game.rs       # App wiring, state gating, game-over detection, result screen
         ├── menu.rs       # Main menu, options and How to Play screens
         ├── ui.rs         # Shared menu buttons, actions and hover visuals
-        ├── ball.rs       # Ball entity, sizing, serve-pause timer and relaunch
+        ├── ball.rs       # Ball entity, sizing, BallReset, serve-pause timer and relaunch
         ├── paddle.rs     # Paddles, input/AI, lives, life-loss and elimination
         ├── physics.rs    # Velocity, colliders, collisions, emits LoseLife on wall hits
         ├── walls.rs      # Arena walls and their PaddleLocation ownership
