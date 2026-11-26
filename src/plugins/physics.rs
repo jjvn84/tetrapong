@@ -1,5 +1,5 @@
 use crate::plugins::ball::Ball;
-use crate::plugins::paddle::{LoseLife, Paddle};
+use crate::plugins::paddle::{AlivePaddles, LoseLife, Paddle};
 use crate::plugins::powerups::{PowerUp, PowerUpHit};
 use crate::plugins::walls::WallLocation;
 use bevy::prelude::*;
@@ -75,6 +75,7 @@ fn move_ball(
     >,
     mut lose_life: MessageWriter<LoseLife>,
     mut power_up_hit: MessageWriter<PowerUpHit>,
+    alive: Res<AlivePaddles>,
 ) {
     let (mut ball, mut ball_velocity, mut ball_transform) = ball_query.into_inner();
 
@@ -126,7 +127,11 @@ fn move_ball(
                 ColliderType::Wall => {
                     hit_wall = true;
 
-                    if let Some(wall_location) = wall_location {
+                    // A wall whose paddle is out of the round is still solid,
+                    // but it no longer concedes a point.
+                    if let Some(wall_location) = wall_location
+                        && alive.is_alive(wall_location.owner())
+                    {
                         lose_life.write(LoseLife {
                             paddle_location: wall_location.owner(),
                             from_wall_hit: true,
@@ -248,6 +253,65 @@ fn ball_collision(ball: BoundingCircle, bounding_box: Aabb2d) -> Option<Collisio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugins::paddle::{AlivePaddles, PaddleLocation};
+    use crate::plugins::walls::WallLocation;
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+
+    #[derive(Resource, Default)]
+    struct LoseLifeCount(usize);
+
+    fn count_lose_life(mut reader: MessageReader<LoseLife>, mut count: ResMut<LoseLifeCount>) {
+        count.0 += reader.read().count();
+    }
+
+    fn run_wall_hit(eliminated: bool) -> usize {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+            1.0 / 60.0,
+        )));
+        app.add_message::<LoseLife>();
+        app.add_message::<PowerUpHit>();
+        app.init_resource::<AlivePaddles>();
+        app.init_resource::<LoseLifeCount>();
+        app.add_systems(Update, (move_ball, count_lose_life.after(move_ball)));
+
+        app.world_mut().spawn((
+            Ball {
+                last_hit_by: None,
+                speed_multiplier: 1.0,
+            },
+            Velocity(Vec2::new(-100.0, 0.0)),
+            Transform::from_xyz(0.0, 0.0, 1.0).with_scale(Vec3::splat(10.0)),
+        ));
+        app.world_mut().spawn((
+            Collider(ColliderType::Wall),
+            WallLocation::Left,
+            Transform::from_xyz(-10.0, 0.0, 0.0).with_scale(Vec3::new(1.0, 100.0, 1.0)),
+        ));
+        if eliminated {
+            app.world_mut()
+                .resource_mut::<AlivePaddles>()
+                .eliminate(PaddleLocation::Left);
+        }
+
+        for _ in 0..20 {
+            app.update();
+        }
+
+        app.world().resource::<LoseLifeCount>().0
+    }
+
+    #[test]
+    fn live_wall_hit_emits_lose_life() {
+        assert_eq!(run_wall_hit(false), 1);
+    }
+
+    #[test]
+    fn eliminated_wall_hit_does_not_emit_lose_life() {
+        assert_eq!(run_wall_hit(true), 0);
+    }
 
     #[test]
     fn fast_ball_moves_less_than_half_its_radius_per_substep() {

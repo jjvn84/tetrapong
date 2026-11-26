@@ -27,7 +27,7 @@ is still far from finished.
 - Four paddles, each with its own lives counter and HUD label
 - Human control for any paddle assigned to a player, using dedicated keys per side
 - Ball movement and reflection off walls and paddles
-- Scoring: when the ball hits a wall, that side loses a life
+- Scoring: when the ball hits a wall owned by a side that is still alive, that side loses a life
 - Ball reset and a 2-second serve pause before relaunching in a random direction
 - Paddle elimination at 0 lives, with the HUD showing 0
 - Power-ups that spawn in the arena and apply to the last paddle to hit the ball
@@ -37,8 +37,6 @@ is still far from finished.
 
 **Not implemented yet**
 
-- Behaviour for an eliminated side: its wall still emits `LoseLife`, but no paddle remains
-  to lose a life, so the ball keeps bouncing off that wall
 - Pause menu, audio, networked play, and general polish
 - Broader automated test coverage — ball substepping, the game-over rule, and the settings
   resource are unit-tested; the UI is verified by playing the game
@@ -74,7 +72,8 @@ round instead runs until only one paddle remains.
 
 1. The ball starts at the centre with a random direction.
 2. Each of the four paddles starts with 3 lives.
-3. If the ball reaches a wall, that wall's side loses a life.
+3. If the ball reaches a wall owned by a side that is still alive, that side loses a life.
+   An eliminated side's wall still bounces the ball but concedes no point.
 4. The ball resets to the centre, waits 2 seconds, then serves in a random direction at
    its base speed. Resizing the window does the same: the ball returns to the centre and
    serves again, losing any speed power-up it had.
@@ -201,7 +200,7 @@ pull request are also available as workflow artifacts on the Actions tab.
         ├── menu.rs       # Main menu, options and How to Play screens
         ├── ui.rs         # Shared menu buttons, actions and hover visuals
         ├── ball.rs       # Ball entity, sizing, BallReset, serve-pause timer and relaunch
-        ├── paddle.rs     # Paddles, input/AI, lives, life-loss and elimination
+        ├── paddle.rs     # Paddles, input/AI, lives, AlivePaddles, elimination
         ├── physics.rs    # Velocity, colliders, collisions, emits LoseLife on wall hits
         ├── walls.rs      # Arena walls and their PaddleLocation ownership
         ├── hud.rs        # On-screen lives panels and eliminated state
@@ -217,9 +216,11 @@ screen edits it through menu button actions, `paddle.rs` reads it when spawning 
 and when deciding how often a computer paddle skips a frame, and `game.rs` reads it to
 decide whether the "all humans eliminated" rule applies.
 
-Gameplay flows through messages: a wall collision emits `LoseLife`, `paddle.rs` decrements
-lives and resets the ball, and `PaddleEliminated` tells the HUD when a paddle has been
-removed. Gameplay systems are grouped in per-plugin system sets, and `GamePlugin` runs
+Gameplay flows through messages: a wall collision on a live side emits `LoseLife`,
+`paddle.rs` decrements lives and resets the ball, and `PaddleEliminated` tells the HUD when
+a paddle has been removed. The `AlivePaddles` resource tracks which sides are still in the
+round; `physics.rs` uses it to ignore dead walls and `game.rs` uses it to decide the outcome.
+Gameplay systems are grouped in per-plugin system sets, and `GamePlugin` runs
 those sets only in `GameState::Game`; the ball, paddles, HUD and power-ups of a round are
 rebuilt whenever a new round starts, while the menu screens are spawned when their state is
 entered.
@@ -228,11 +229,9 @@ entered.
 
 Rough order of intended work:
 
-1. Decide what happens when a side is eliminated (stop scoring it, remove its goal, or end
-   the game).
-2. Add a pause menu, audio, and further visual polish (glow, trails, hit effects).
-3. Improve ball physics (angles based on paddle contact, spin).
-4. Consider networked or AI-vs-AI spectator modes.
+1. Add a pause menu, audio, and further visual polish (glow, trails, hit effects).
+2. Improve ball physics (angles based on paddle contact, spin).
+3. Consider networked or AI-vs-AI spectator modes.
 
 ## License
 

@@ -60,12 +60,13 @@ The game follows Bevy's ECS and plugin pattern. Each concern is a plugin in
   and owns `BallReset` and `ServePause`: every reset (after a point or a resize) parks the
   ball at the centre and starts the 2-second timer that relaunches it in a random direction.
 - `paddle.rs` — spawns the four paddles at the start of each round from `Settings`, defines
-  `PaddleLocation`, `PlayerType`, `Lives`, `LoseLife`, and `PaddleEliminated`; handles
-  human input, computer movement, life loss, and despawning eliminated paddles.
+  `PaddleLocation`, `PlayerType`, `Lives`, `AlivePaddles`, `LoseLife`, and `PaddleEliminated`;
+  handles human input, computer movement, life loss, and despawning eliminated paddles.
+  `AlivePaddles` tracks which sides are still in the round and is reset on entry to `Game`.
 - `physics.rs` — `Velocity`, `Collider`/`ColliderType`, and `move_ball`, which
   integrates the ball in distance-bounded substeps and resolves AABB vs. bounding circle
-  collisions. Emits `LoseLife` when the ball hits a wall and `PowerUpHit` when it touches a
-  power-up.
+  collisions. Emits `LoseLife` when the ball hits a wall owned by a live paddle and
+  `PowerUpHit` when it touches a power-up.
 - `walls.rs` — spawns the four arena walls, each carrying a `WallLocation` component, and
   keeps them aligned on resize. `WallLocation::owner` maps a wall to its `PaddleLocation`.
 - `hud.rs` — spawns and updates the per-side lives panels for the current round, including
@@ -102,7 +103,9 @@ Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`
 - Arena-level entities (camera, walls, `PowerUpAssets`) stay on `Startup` and survive state
   changes.
 - `check_game_over` runs in `Update` after `PaddleSet`/`PowerUpsSet` and delegates the
-  decision to `decide_outcome`. The last paddle standing wins, whoever controls it. When
+  decision to `decide_outcome`. It builds the list of survivors from `AlivePaddles`
+  (indexed by `PaddleLocation`) and their `PlayerType` from `Settings`, so physics and the
+  game-over rule read the same alive state. The last paddle standing wins, whoever controls it. When
   `Settings::has_human_players()` is true, the round also ends as soon as every
   `PlayerType::Human` paddle is gone (loss); an all-computer round instead runs until one
   paddle is left. The decision is unit-tested.
@@ -140,9 +143,10 @@ Plugins are declared in `src/plugins.rs` and registered in `src/plugins/game.rs`
 - **Button labels are not pickable.** Every text node inside a button (and every layout
   container) carries `Pickable::IGNORE`; otherwise the text sits on top of the button and
   swallows clicks. Buttons keep `Pickable::default()`.
-- **Scoring flow.** `physics.rs` emits `LoseLife(PaddleLocation)` on a wall hit;
-  `paddle.rs::handle_lose_life` is the single place that decrements lives, and it emits
-  `BallReset` for the live paddle that conceded. Keep game rules out of the collision system.
+- **Scoring flow.** `physics.rs` emits `LoseLife(PaddleLocation)` when the ball hits a wall
+  whose owner is still alive in `AlivePaddles`; `paddle.rs::handle_lose_life` is the single
+  place that decrements lives, marks the paddle eliminated in `AlivePaddles`, and emits
+  `BallReset` for the paddle that conceded. Keep game rules out of the collision system.
 - **Ball resets.** `ball.rs::reset_ball` is the only place that moves the ball back to the
   centre, restores its size, clears its per-rally state (`last_hit_by`, `speed_multiplier`)
   and inserts `ServePause`. Its only triggers are `BallReset` from a conceded point and from
@@ -209,9 +213,10 @@ This code targets Bevy 0.20, which differs from older examples online:
   when the settings started with at least one human (`humans_playing`). If you add more
   human players, keep the "all humans eliminated" check rather than checking a hard-coded
   side.
-- **Eliminated sides still score.** Their wall keeps emitting `LoseLife`, but no paddle
-  matches, so nothing is decremented or reset and the ball bounces off that wall. Decide
-  the intended rule before changing this.
+- **Dead walls are inert.** A wall whose paddle was eliminated still reflects the ball, but
+  `move_ball` checks `AlivePaddles` first and emits no `LoseLife`, so no life is lost and the
+  ball is not reset or serve-paused. Keep that check in `physics.rs` rather than relying on
+  `handle_lose_life` finding no paddle.
 - **Walls are solid.** The ball reflects off a wall in the same frame the point is scored;
   `handle_lose_life` then resets it. A wall hit is the scoring trigger, not a pass-through.
 - **Power-ups need a `last_hit_by`.** A power-up is only awarded when `ball.last_hit_by` is

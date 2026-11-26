@@ -20,7 +20,8 @@ pub struct PaddlePlugin;
 
 impl Plugin for PaddlePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Game), setup);
+        app.init_resource::<AlivePaddles>();
+        app.add_systems(OnEnter(GameState::Game), (revive_all, setup));
         app.add_systems(Update, on_window_resize);
         app.add_systems(Update, move_paddle.in_set(PaddleSet));
         app.add_systems(Update, handle_lose_life.in_set(PaddleSet));
@@ -119,7 +120,7 @@ impl PaddleLocation {
     pub const ALL: [Self; Self::COUNT] = [Self::Left, Self::Right, Self::Bottom, Self::Top];
     pub const COUNT: usize = 4;
 
-    /// Index into `Settings::player_types`.
+    /// Index into `Settings::player_types` and `AlivePaddles::alive`.
     pub const fn index(self) -> usize {
         match self {
             Self::Left => 0,
@@ -135,6 +136,44 @@ impl PaddleLocation {
             Self::Right => "Right",
             Self::Bottom => "Bottom",
             Self::Top => "Top",
+        }
+    }
+}
+
+/// Which paddles are still in the round, indexed by `PaddleLocation::index`.
+///
+/// `physics.rs` uses this to ignore wall hits on eliminated sides, and `game.rs`
+/// uses it to decide the outcome. It is reset on every entry into `GameState::Game`.
+#[derive(Resource)]
+pub struct AlivePaddles {
+    alive: [bool; PaddleLocation::COUNT],
+}
+
+impl AlivePaddles {
+    pub fn is_alive(&self, location: PaddleLocation) -> bool {
+        self.alive[location.index()]
+    }
+
+    pub fn eliminate(&mut self, location: PaddleLocation) {
+        self.alive[location.index()] = false;
+    }
+
+    pub fn revive_all(&mut self) {
+        self.alive = [true; PaddleLocation::COUNT];
+    }
+
+    /// The locations that are still alive, in `PaddleLocation::ALL` order.
+    pub fn locations(&self) -> impl Iterator<Item = PaddleLocation> + '_ {
+        PaddleLocation::ALL
+            .into_iter()
+            .filter(|location| self.is_alive(*location))
+    }
+}
+
+impl Default for AlivePaddles {
+    fn default() -> Self {
+        Self {
+            alive: [true; PaddleLocation::COUNT],
         }
     }
 }
@@ -166,6 +205,10 @@ pub struct LoseLife {
 
 #[derive(Message)]
 pub struct PaddleEliminated(pub PaddleLocation);
+
+fn revive_all(mut alive: ResMut<AlivePaddles>) {
+    alive.revive_all();
+}
 
 fn setup(mut commands: Commands, window: Query<&mut Window>, settings: Res<Settings>) {
     let Ok(window) = window.single() else {
@@ -326,6 +369,7 @@ fn handle_lose_life(
     mut messages: MessageReader<LoseLife>,
     mut eliminated: MessageWriter<PaddleEliminated>,
     mut ball_reset: MessageWriter<BallReset>,
+    mut alive: ResMut<AlivePaddles>,
     mut paddles: Query<(Entity, &mut Paddle, &mut Transform, &mut Lives), With<Paddle>>,
     window: Query<&mut Window>,
 ) {
@@ -350,6 +394,7 @@ fn handle_lose_life(
                 lives.0 -= 1;
 
                 if lives.0 == 0 {
+                    alive.eliminate(paddle.location);
                     commands.entity(paddle_entity).despawn();
                     eliminated.write(PaddleEliminated(paddle.location));
                 }
@@ -386,6 +431,38 @@ mod tests {
         assert_eq!(
             paddle.size(100.0),
             Vec3::new(PADDLE_WIDTH, PADDLE_HEIGHT, 1.0)
+        );
+    }
+
+    #[test]
+    fn alive_paddles_starts_with_every_side_alive() {
+        let alive = AlivePaddles::default();
+
+        assert_eq!(
+            alive.locations().collect::<Vec<_>>(),
+            PaddleLocation::ALL.to_vec()
+        );
+    }
+
+    #[test]
+    fn eliminating_a_paddle_only_removes_that_side() {
+        let mut alive = AlivePaddles::default();
+        alive.eliminate(PaddleLocation::Bottom);
+
+        assert!(!alive.is_alive(PaddleLocation::Bottom));
+        assert_eq!(
+            alive.locations().collect::<Vec<_>>(),
+            [
+                PaddleLocation::Left,
+                PaddleLocation::Right,
+                PaddleLocation::Top
+            ]
+        );
+
+        alive.revive_all();
+        assert_eq!(
+            alive.locations().collect::<Vec<_>>(),
+            PaddleLocation::ALL.to_vec()
         );
     }
 }

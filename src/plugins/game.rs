@@ -2,7 +2,7 @@ use crate::game_state::GameState;
 use crate::plugins::ball::{BallPlugin, BallSet};
 use crate::plugins::hud::HudPlugin;
 use crate::plugins::menu::MenuPlugin;
-use crate::plugins::paddle::{Lives, Paddle, PaddleLocation, PaddlePlugin, PaddleSet, PlayerType};
+use crate::plugins::paddle::{AlivePaddles, PaddleLocation, PaddlePlugin, PaddleSet, PlayerType};
 use crate::plugins::physics::{PhysicsPlugin, PhysicsSet};
 use crate::plugins::powerups::{PowerUpsPlugin, PowerUpsSet};
 use crate::plugins::ui::{
@@ -82,15 +82,16 @@ fn setup(mut commands: Commands) {
 /// contain at least one human paddle, the round also ends as soon as no
 /// `PlayerType::Human` paddle is left, even if several computer paddles are alive.
 fn check_game_over(
-    paddles: Query<(&Paddle, &Lives, &PlayerType)>,
+    alive_paddles: Res<AlivePaddles>,
     settings: Res<Settings>,
     mut next: ResMut<NextState<GameState>>,
     mut result: ResMut<GameResult>,
 ) {
-    let alive: Vec<_> = paddles
-        .iter()
-        .filter(|(_, lives, _)| lives.0 > 0)
-        .map(|(paddle, _, player_type)| (paddle.location, *player_type))
+    // Settings own the round's player types; `AlivePaddles` says which of them
+    // are still in it. Both are updated on entry to `Game` and on elimination.
+    let alive: Vec<_> = alive_paddles
+        .locations()
+        .map(|location| (location, settings.player_type(location)))
         .collect();
 
     if let Some(outcome) = decide_outcome(&alive, settings.has_human_players()) {
