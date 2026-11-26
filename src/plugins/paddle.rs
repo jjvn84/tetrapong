@@ -84,6 +84,14 @@ impl Paddle {
         }
     }
 
+    /// Restores the paddle's stock size and speed, clearing every power-up
+    /// modifier. Callers must reapply `size` to keep the sprite and collider in
+    /// sync with the new multipliers.
+    pub(crate) fn clear_modifiers(&mut self) {
+        self.width_multiplier = 1.0;
+        self.speed_multiplier = 1.0;
+    }
+
     pub(crate) fn size(&self, min_window_dimension: f32) -> Vec3 {
         let paddle_width = PADDLE_WIDTH * min_window_dimension / 100.0;
         let paddle_height = PADDLE_HEIGHT * min_window_dimension / 100.0;
@@ -346,10 +354,9 @@ fn handle_lose_life(
                     eliminated.write(PaddleEliminated(paddle.location));
                 }
 
-                // Reset paddle parameters
-                paddle.width_multiplier = 1.0;
+                // Clear power-up effects and restore the stock size.
+                paddle.clear_modifiers();
                 paddle_transform.scale = paddle.size(min_window_dimension);
-                paddle.speed_multiplier = 1.0;
                 if *from_wall_hit {
                     // `ball.rs` owns the ball: it parks it and starts the serve pause.
                     ball_reset.write(BallReset);
@@ -357,5 +364,28 @@ fn handle_lose_life(
                 point_already_scored = true;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_modifiers_restores_the_stock_paddle() {
+        let mut paddle = Paddle {
+            location: PaddleLocation::Bottom,
+            width_multiplier: 4.0,
+            speed_multiplier: 0.25,
+        };
+
+        paddle.clear_modifiers();
+
+        assert_eq!(paddle.width_multiplier, 1.0);
+        assert_eq!(paddle.speed_multiplier, 1.0);
+        assert_eq!(
+            paddle.size(100.0),
+            Vec3::new(PADDLE_WIDTH, PADDLE_HEIGHT, 1.0)
+        );
     }
 }
